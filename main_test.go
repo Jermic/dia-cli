@@ -122,7 +122,7 @@ func TestMoveDomainMissingTargetDiagnostic(t *testing.T) {
 			t.Errorf("%q: status=%d stderr=%q", args, status, stderr.String())
 		}
 	}
-	for _, args := range [][]string{{"exec", "1", "-h"}, {"move-domain", "example.com", "-h"}} {
+	for _, args := range [][]string{{"exec", "1", "--", "-h"}, {"move-domain", "example.com", "--", "-h"}} {
 		c, err := parse(args)
 		if err != nil || len(c.Args) != 2 || c.Args[1] != "-h" {
 			t.Errorf("positional -h changed for %q: %+v %v", args, c, err)

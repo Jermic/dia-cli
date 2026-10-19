@@ -9,11 +9,11 @@ import (
 
 func TestCommandHelpRoutes(t *testing.T) {
 	want := map[string]string{
-		"help": "dia help [command]", "version": "dia version", "tabs": "dia tabs [flags]",
+		"domains": "dia domains [flags]", "help": "dia help [command]", "version": "dia version", "tabs": "dia tabs [flags]",
 		"find": "dia find <text> [flags]", "current": "dia current [-w <id>]",
 		"count": "dia count [flags]", "links": "dia links [flags]", "open": "dia open <row>",
 		"focus": "dia focus <tab-id> [-w <id>]", "close": "dia close <row>",
-		"move": "dia move <row> <profile>", "move-domain": "dia move-domain <domain> <target-profile> [flags]",
+		"move": "dia move <row> <profile>", "move-domain": "dia move-domain <selector> <target-profile> [flags]",
 		"navigate": "dia navigate <row> <url>", "exec": "dia exec <row> <javascript>",
 		"windows": "dia windows [-w <id>]", "profiles": "dia profiles [flags]",
 		"profile": "dia profile <name> [-w <id>]", "layout": "dia layout <sidebar|tabStrip> [-w <id>]",
@@ -74,7 +74,7 @@ func TestHelpRootAndInvalidTargets(t *testing.T) {
 			t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 		}
 	}
-	for _, args := range [][]string{{"help", "unknown"}, {"help", "tabs", "extra"}, {"h", "mv", "extra"}, {"tabs", "-h", "extra"}} {
+	for _, args := range [][]string{{"help", "unknown"}, {"help", "tabs", "extra"}, {"h", "mv", "extra"}} {
 		var out, stderr bytes.Buffer
 		status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 			t.Fatalf("%q invoked Dia", args)
@@ -93,14 +93,14 @@ func TestHelpKeepsArgumentValues(t *testing.T) {
 		arg  string
 		flag string
 	}{
-		{[]string{"exec", "1", "-h"}, "exec", "-h", ""},
+		{[]string{"exec", "1", "--", "-h"}, "exec", "-h", ""},
 		{[]string{"exec", "1", "-v"}, "exec", "-v", ""},
 		{[]string{"move-domain", "example.com", "-v"}, "move-domain", "-v", ""},
 		{[]string{"tabs", "-p", "-v"}, "tabs", "", "-v"},
-		{[]string{"move", "1", "-h"}, "move", "-h", ""},
+		{[]string{"move", "1", "--", "-h"}, "move", "-h", ""},
 		{[]string{"tabs", "-p", "-h"}, "tabs", "", "-h"},
 		{[]string{"tabs", "-w", "-h"}, "tabs", "", "-h"},
-		{[]string{"move-domain", "example.com", "-h"}, "move-domain", "-h", ""},
+		{[]string{"move-domain", "example.com", "--", "-h"}, "move-domain", "-h", ""},
 	} {
 		c, err := parse(tc.args)
 		if err != nil || c.Name != tc.name {

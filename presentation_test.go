@@ -59,7 +59,18 @@ func TestGlobalCommandFamilies(t *testing.T) {
 			t.Fatal(err)
 		}
 		status := run(args, &out, &errs, func(Command, func(Progress)) (Result, error) { return Result{Output: "Action complete"}, nil }, cache, outputMode{stdoutTTY: true})
-		if status != 0 || out.String() != "◇  Action complete\n" || errs.Len() != 0 {
+		want := "◇  Action complete\n"
+		switch args[0] {
+		case "o":
+			want = "◇  Focused tab 1\n"
+		case "cl":
+			want = "◇  Closed tab 1\n"
+		case "m":
+			want = "◇  Moved tab 1 to Work\n"
+		case "nav":
+			want = "◇  Navigated tab 1 to https://example.com\n"
+		}
+		if status != 0 || out.String() != want || errs.Len() != 0 {
 			t.Fatalf("%q %d %q %q", args, status, out.String(), errs.String())
 		}
 	}

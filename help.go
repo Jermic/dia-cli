@@ -1,6 +1,30 @@
 package main
 
 var commandHelp = map[string]string{
+	"domains": `USAGE
+  dia domains [flags]
+
+ALIASES
+  ds
+
+Count tabs by registrable root domain, including private Public Suffix List rules. Use -s to count each full hostname separately. Counts descend, with alphabetical domain order for ties. Duplicate URLs in different tabs count separately.
+
+FLAGS
+  -s, --subdomains        Count each full hostname separately
+  -w, --window <id>       Select one window
+  -p, --profile <name>    Select an exact, case-sensitive source profile
+  -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -k, --keyword <text>    Match URL text, case-insensitive; repeat for a union
+  -E, --exact-domain      Match plain domains exactly; requires a domain
+  --pinned, --loading     Require these tab states
+
+Domains and URL keywords form a union. Other filters intersect. Plain example.com includes subdomains; quote '*.example.com' for subdomains only. -E matches plain domains exactly. IP addresses and localhost stay separate. Empty, invalid, and hostless URLs count as (no domain). All tab counts are retained. This command does not replace saved rows.
+
+EXAMPLES
+  dia ds
+  dia ds -s -D github.com
+  dia ds -p Work -k youtube`,
+
 	"help": `USAGE
   dia help [command]
 
@@ -34,13 +58,14 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
   -d, -detail             Show full URLs beside titles
   -s, -st                 Sort by title
   -sl                     Sort by URL; requires -d
 
-Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
+Domains and URL keywords form a union. Keywords match literal, case-insensitive text in the full URL, including paths and queries. Other filters intersect with this union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLES
   dia tabs -d -sl
@@ -57,10 +82,11 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
+Domains and URL keywords form a union. Keywords match literal, case-insensitive text in the full URL, including paths and queries. Other filters intersect with this union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia find github -p Work`,
@@ -89,10 +115,11 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
+Domains and URL keywords form a union. Keywords match literal, case-insensitive text in the full URL, including paths and queries. Other filters intersect with this union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia count -D example.com`,
@@ -108,10 +135,11 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
+Domains and URL keywords form a union. Keywords match literal, case-insensitive text in the full URL, including paths and queries. Other filters intersect with this union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia l -p Github -D github.com`,
@@ -159,27 +187,32 @@ Move a saved row to an exact profile name in the same saved window. The target p
 EXAMPLE
   dia move 2 Work`,
 	"move-domain": `USAGE
-  dia move-domain <domain> <target-profile> [flags]
+  dia move-domain <selector> <target-profile> [flags]
+  dia move-domain -k <text> <target-profile> [flags]
 
 ALIASES
   mv (recommended), md (compatible)
 
-Move tabs matching the first domain or any repeated -D domain into the target profile. The target must already exist in each involved window. Tabs stay in their windows.
+Move tabs matching a domain or URL keyword into the target profile. A simple word such as youtube matches literal, case-insensitive text in the full URL. Use -D for a strict domain or -k for arbitrary URL text. The target must already exist in each involved window. Tabs stay in their windows.
 
-All windows pass preflight before any move. Terminal stderr shows live scan, preflight, and move progress. Terminal stdout shows aligned plans and vertical counts. Piped stdout keeps TSV plans and key=value counts. Dry-run shows scan and preview progress without moving tabs.
+All windows pass preflight before any move. Terminal stderr shows live progress. Terminal stdout shows aligned previews and a concise result. Full counts appear on failure. Piped stdout keeps TSV plans and key=value counts. Dry-run shows scan and preview progress without moving tabs.
 
 FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Add an HTTP(S) host to the domain union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
   -n, --dry-run           Preview decisions and counts; move no tabs
 
-Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
+Domains and URL keywords form a union. Keywords match literal, case-insensitive text in the full URL, including paths and queries. Other filters intersect with this union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
-  dia mv github.com Work -p Personal -n`,
+  dia mv github.com Work -p Personal -n
+  dia mv youtube Watch -n
+  dia mv -k "youtube.com/watch" Watch -n
+  dia mv skills.sh Watch -k youtube -n`,
 	"navigate": `USAGE
   dia navigate <row> <url>
 
@@ -226,6 +259,7 @@ FLAGS
   -p, --profile <name>    Select an exact, case-sensitive profile
   -c, --counts            Show profile membership counts
   -D, --domain <domain>   Limit counts to an HTTP(S) host; requires -c; repeat for a union
+  -k, --keyword <text>   Limit counts to URL text; requires -c; repeat for a union
   -E, --exact-domain     Match plain domains exactly; requires -D and -c
 
 Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.

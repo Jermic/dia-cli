@@ -33,19 +33,21 @@ type TabRef struct {
 }
 
 type Command struct {
-	Name     string          `json:"name"`
-	Args     []string        `json:"args,omitempty"`
-	Window   string          `json:"window,omitempty"`
-	Profile  string          `json:"profile,omitempty"`
-	Domains  []DomainPattern `json:"domains,omitempty"`
-	Target   string          `json:"target,omitempty"`
-	Detail   bool            `json:"detail,omitempty"`
-	Sort     string          `json:"sort,omitempty"`
-	Pinned   bool            `json:"pinned,omitempty"`
-	Loading  bool            `json:"loading,omitempty"`
-	DryRun   bool            `json:"dryRun,omitempty"`
-	Counts   bool            `json:"counts,omitempty"`
-	Progress bool            `json:"progress,omitempty"`
+	Name       string          `json:"name"`
+	Args       []string        `json:"args,omitempty"`
+	Window     string          `json:"window,omitempty"`
+	Profile    string          `json:"profile,omitempty"`
+	Domains    []DomainPattern `json:"domains,omitempty"`
+	Keywords   []string        `json:"keywords,omitempty"`
+	Target     string          `json:"target,omitempty"`
+	Detail     bool            `json:"detail,omitempty"`
+	Sort       string          `json:"sort,omitempty"`
+	Pinned     bool            `json:"pinned,omitempty"`
+	Loading    bool            `json:"loading,omitempty"`
+	DryRun     bool            `json:"dryRun,omitempty"`
+	Counts     bool            `json:"counts,omitempty"`
+	Progress   bool            `json:"progress,omitempty"`
+	Subdomains bool            `json:"subdomains,omitempty"`
 }
 
 type Progress struct {
@@ -70,6 +72,7 @@ type MoveResult struct {
 }
 
 type Result struct {
+	URLs   []string    `json:"urls,omitempty"`
 	Output string      `json:"output"`
 	Tabs   []TabRef    `json:"tabs,omitempty"`
 	Move   *MoveResult `json:"move,omitempty"`
@@ -86,6 +89,7 @@ CORE COMMANDS
   find, f <text>          Search titles and URLs
   current, c              Show the active tab
   count, n                Count tabs
+  domains, ds             Count tabs by root domain (-s for full hosts)
   links, l                Print full URLs, one per line
   open, o <row>           Focus a saved row
   help, h                 Show this help
@@ -95,7 +99,7 @@ TAB COMMANDS
   focus, fo <tab-id>       Focus a tab by ID
   close, cl <row>         Close a saved row
   move, m <row> <profile> Move a saved row in its window
-  move-domain, mv <domain> <target>  Move matching tabs in one batch (md also works)
+  move-domain, mv <selector> <target>  Move matching tabs in one batch (md also works)
   navigate, nav <row> <url>  Navigate a saved row
   exec, e <row> <javascript> Run JavaScript in a saved row
 
@@ -109,16 +113,20 @@ FILTERS AND FLAGS
   --profile, -p <name>    Select a source profile (case-sensitive)
   --domain, -D <domain>   Match HTTP(S) root + subdomains; repeatable
                          Use *.example.com for subdomains only
+  --keyword, -k <text>   Match URL text, case-insensitive; repeatable
   --exact-domain, -E      Match plain domains exactly (requires a domain)
   --window, -w <id>       Select one window
   --dry-run, -n           Plan move-domain without moving
   --counts, -c            Show profile membership counts
   -d, -detail             Show full URLs beside tab titles
+  --subdomains, -s        Count full hosts instead of roots (domains only)
   -s, -st / -sl           Sort tabs by title / URL (-sl requires -d)
   --pinned, --loading     Require these tab states
   --help, -h              Show help
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
+Domains and URL keywords form a union; other filters intersect.
+Use -- before literal positional arguments such as a profile named --help.
 Move-domain never creates profiles or moves between windows.
 Move progress goes to terminal stderr. Piped stdout keeps machine-readable output.
 
@@ -126,16 +134,17 @@ EXAMPLES
   dia help <command>
   dia <command> --help
   dia l -p Github -D github.com
-  dia mv github.com Work -n`
+  dia mv github.com Work -n
+  dia mv youtube Watch -n`
 
 var aliases = map[string]string{
-	"t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
+	"ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
 	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "mv": "move-domain", "md": "move-domain",
 	"nav": "navigate", "la": "layout", "e": "exec", "v": "version", "-v": "version",
 }
 
 var arities = map[string]int{
-	"help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
+	"domains": 0, "help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
 	"profile": 1, "windows": 0, "layout": 1, "open": 1, "close": 1, "move": 2, "move-domain": 2,
 	"navigate": 2, "exec": 2,
 }
@@ -160,6 +169,30 @@ func domain(raw string) (DomainPattern, error) {
 		}
 	}
 	return p, nil
+}
+
+func keyword(value string) error {
+	if strings.TrimSpace(value) == "" {
+		return errors.New("keyword must not be empty")
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+			return errors.New("keyword must not contain control characters")
+		}
+	}
+	return nil
+}
+
+func simpleKeyword(value string) bool {
+	alnum := false
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			alnum = true
+		} else if r != '_' && r != '-' {
+			return false
+		}
+	}
+	return alnum
 }
 
 func webURL(raw string) bool {
@@ -217,18 +250,46 @@ func parse(argv []string) (Command, error) {
 		}
 		return c, nil
 	}
-	if len(argv) == 2 && (argv[1] == "-h" || argv[1] == "--help") {
-		return Command{Name: "help", Args: []string{name}}, nil
+	explicitKeyword := name == "move-domain" && len(argv) > 1 && (argv[1] == "-k" || argv[1] == "--keyword")
+	if explicitKeyword && len(argv) < 3 {
+		return c, errors.New("--keyword requires a value")
 	}
+	literalAt := len(argv)
+	normalized := []string{argv[0]}
+	for i := 1; i < len(argv); i++ {
+		value := argv[i]
+		if value == "--" {
+			literalAt = len(normalized)
+			normalized = append(normalized, argv[i+1:]...)
+			break
+		}
+		if value == "-h" || value == "--help" {
+			return Command{Name: "help", Args: []string{name}}, nil
+		}
+		normalized = append(normalized, value)
+		valued := !isRow(name) && (value == "-w" || value == "--window")
+		if isFiltered(name) || name == "profiles" {
+			valued = valued || value == "-p" || value == "--profile" || value == "-D" || value == "--domain" || value == "-k" || value == "--keyword"
+		}
+		if valued && i+1 < len(argv) {
+			i++
+			normalized = append(normalized, argv[i])
+		}
+	}
+	if explicitKeyword {
+		normalized = append(normalized[:1], normalized[2:]...)
+		literalAt--
+	}
+	argv = normalized
 	if len(argv)-1 < arity {
 		if name == "move-domain" && len(argv) > 1 {
 			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
 		}
 		return c, fmt.Errorf("usage: dia %s requires %d argument(s)", name, arity)
 	}
-	if name == "move-domain" && len(argv) > 2 {
+	if name == "move-domain" && len(argv) > 2 && literalAt > 2 {
 		switch argv[2] {
-		case "-p", "--profile", "-w", "--window", "-D", "--domain", "--pinned", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
+		case "-p", "--profile", "-w", "--window", "-D", "--domain", "-k", "--keyword", "--pinned", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
 			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
 		}
 	}
@@ -239,11 +300,14 @@ func parse(argv []string) (Command, error) {
 		}
 	}
 	args := argv[1+arity:]
+	if len(args) > 0 && literalAt < len(argv) {
+		return c, fmt.Errorf("unexpected literal argument: %s", argv[max(literalAt, 1+arity)])
+	}
 	for len(args) > 0 {
 		flag := args[0]
 		args = args[1:]
 		switch flag {
-		case "--window", "-w", "--profile", "-p", "--domain", "-D":
+		case "--window", "-w", "--profile", "-p", "--domain", "-D", "--keyword", "-k":
 			if len(args) == 0 || args[0] == "" {
 				return c, fmt.Errorf("%s requires a value", flag)
 			}
@@ -260,6 +324,14 @@ func parse(argv []string) (Command, error) {
 					return c, fmt.Errorf("--profile is not valid here or was repeated")
 				}
 				c.Profile = value
+			case "--keyword", "-k":
+				if !(isFiltered(name) || name == "profiles") {
+					return c, errors.New("--keyword is not valid here")
+				}
+				if err := keyword(value); err != nil {
+					return c, err
+				}
+				c.Keywords = append(c.Keywords, value)
 			case "--domain", "-D":
 				if !(isFiltered(name) || name == "profiles") {
 					return c, errors.New("--domain is not valid here")
@@ -290,7 +362,16 @@ func parse(argv []string) (Command, error) {
 				return c, errors.New("-d is valid only for tabs")
 			}
 			c.Detail = true
+		case "--subdomains":
+			if name != "domains" {
+				return c, errors.New("--subdomains is valid only for domains")
+			}
+			c.Subdomains = true
 		case "-s", "-st", "-sl":
+			if name == "domains" && flag == "-s" {
+				c.Subdomains = true
+				break
+			}
 			if name != "tabs" {
 				return c, errors.New("sort flags are valid only for tabs")
 			}
@@ -309,11 +390,6 @@ func parse(argv []string) (Command, error) {
 				return c, errors.New("--counts is valid only for profiles")
 			}
 			c.Counts = true
-		case "--help", "-h":
-			if len(args) != 0 {
-				return c, errors.New("--help accepts no extra arguments")
-			}
-			return Command{Name: "help", Args: []string{name}}, nil
 		default:
 			return c, fmt.Errorf("unexpected argument: %s", flag)
 		}
@@ -321,8 +397,8 @@ func parse(argv []string) (Command, error) {
 	if c.Sort == "url" && !c.Detail {
 		return c, errors.New("link sorting (-sl) requires -d (or -detail)")
 	}
-	if name == "profiles" && len(c.Domains) > 0 && !c.Counts {
-		return c, errors.New("profiles --domain requires --counts")
+	if name == "profiles" && (len(c.Domains) > 0 || len(c.Keywords) > 0) && !c.Counts {
+		return c, errors.New("profiles --domain/--keyword requires --counts")
 	}
 	if name == "layout" && c.Args[0] != "sidebar" && c.Args[0] != "tabStrip" {
 		return c, errors.New("layout must be sidebar or tabStrip")
@@ -342,10 +418,19 @@ func parse(argv []string) (Command, error) {
 	}
 	if name == "move-domain" {
 		p, err := domain(c.Args[0])
-		if err != nil {
-			return c, err
+		if explicitKeyword {
+			if err := keyword(c.Args[0]); err != nil {
+				return c, err
+			}
+			c.Keywords = append([]string{c.Args[0]}, c.Keywords...)
+		} else if err != nil {
+			if !simpleKeyword(c.Args[0]) {
+				return c, err
+			}
+			c.Keywords = append([]string{c.Args[0]}, c.Keywords...)
+		} else {
+			c.Domains = append([]DomainPattern{p}, c.Domains...)
 		}
-		c.Domains = append([]DomainPattern{p}, c.Domains...)
 		c.Target = c.Args[1]
 	}
 	if exactDomain {
@@ -360,7 +445,7 @@ func parse(argv []string) (Command, error) {
 }
 
 func isFiltered(name string) bool {
-	return name == "tabs" || name == "find" || name == "count" || name == "links" || name == "move-domain"
+	return name == "domains" || name == "tabs" || name == "find" || name == "count" || name == "links" || name == "move-domain"
 }
 
 func isRow(name string) bool {
@@ -492,7 +577,7 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 		if len(c.Args) == 0 {
 			fmt.Fprintln(out, help)
 		} else {
-			fmt.Fprintln(out, commandHelp[c.Args[0]]+"\n\nHELP\n  -h, --help              Show this command help")
+			fmt.Fprintln(out, commandHelp[c.Args[0]]+"\n\nHELP\n  -h, --help              Show this command help\n  --                      Treat remaining positional arguments literally")
 		}
 		return 0
 	}
@@ -534,6 +619,9 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 			p.fail(err.Error())
 			return 1
 		}
+	}
+	if c.Name == "domains" && result.Error == "" {
+		result.Output = domainsOutput(domainCounts(result.URLs, c.Subdomains))
 	}
 	p.finish(result)
 	if result.Error != "" {

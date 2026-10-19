@@ -193,7 +193,47 @@ function run(argv) {
     assert(ids(['tabs', '-st', '-sl', '-d']) === 'empty,z,a2,zh,a1', 'last URL sort flag wins');
     assert(cli(['tabs', '-d', '-sl']).indexOf('http://a.example/B') !== -1, 'sorting preserves original URLs');
     assert(cli(['links']) === 'https://Z.example\nhttps://a.example/b\nhttp://a.example/B\nhttps://b.example', 'links omit empty URLs without changing addresses');
+    var reorderTabs = [tab('left', 'Left', 'https://same.test/'), tab('right', 'Right', 'https://same.test/')];
+    var reorderProfile = profile('Reordering', reorderTabs);
+    var readTitles = reorderProfile.tabs.title;
+    reorderProfile.tabs.title = function () { reorderTabs.reverse(); return readTitles(); };
+    windows = [window('reordered', [reorderProfile], reorderTabs[0])];
+    fails(['tabs'], 'Tabs changed');
+    var domainTabs = [tab('root', 'Root', 'https://example.com', true, true),
+        tab('child', 'Child', 'https://docs.example.com/path', true, false),
+        tab('duplicate-url', 'Same URL', 'https://example.com'), tab('empty-url', 'Empty', '')];
+    var domainProfile = profile('Domain', domainTabs);
+    domainProfile.tabs.title = function () { throw Error('Domains must not read titles'); };
+    var otherDomainProfile = profile('Other', [domainTabs[0], tab('other', 'Other', 'about:blank')]);
+    otherDomainProfile.tabs.title = domainProfile.tabs.title;
+    windows = [window('d1', [domainProfile, otherDomainProfile], domainTabs[0]), window('d2', [profile('Domain', [domainTabs[0]])], domainTabs[0])];
+    function domainURLs(flags) {
+        var request = {name: 'domains'};
+        Object.keys(flags || {}).forEach(function (key) { request[key] = flags[key]; });
+        return JSON.parse(jsonCLI([JSON.stringify(request)])).urls;
+    }
+    var beforeDomainFocus = focused.length, beforeDomainActions = actions.length;
+    assert(domainURLs().join('|') === 'https://example.com|https://docs.example.com/path|https://example.com||about:blank|https://example.com', 'domains dedupe window-tab pairs, retain duplicate URLs and empty URLs');
+    assert(domainURLs({window: 'd1', profile: 'Domain'}).length === 4, 'domains window and profile filters intersect');
+    assert(domainURLs({domains: [{host: 'example.com'}]}).length === 4, 'domains root filter includes child and separate windows');
+    assert(domainURLs({domains: [{host: 'example.com', exact: true}]}).length === 3, 'domains exact filter excludes child');
+    assert(domainURLs({domains: [{host: 'example.com', subdomains: true}]}).join() === 'https://docs.example.com/path', 'domains wildcard excludes root');
+    assert(domainURLs({keywords: ['PATH', 'about:']}).join('|') === 'https://docs.example.com/path|about:blank', 'domains repeated keyword union is case insensitive');
+    assert(domainURLs({domains: [{host: 'missing.com'}], keywords: ['about:']}).join() === 'about:blank', 'domains and keywords form union');
+    assert(domainURLs({pinned: true, loading: true}).length === 2, 'domains pinned and loading intersect');
+    assert(domainURLs({keywords: ['absent']}).length === 0, 'domains no matches');
+    var otherDomainIDs = otherDomainProfile.tabs.id;
+    otherDomainProfile.tabs.id = function () { throw Error('Unselected profile must not be read'); };
+    assert(domainURLs({profile: 'Domain'}).length === 5, 'domains skip unselected profile before reading IDs');
+    otherDomainProfile.tabs.id = otherDomainIDs;
+    var originalDomainURLs = domainProfile.tabs.url;
+    domainProfile.tabs.url = function () { domainTabs.reverse(); return originalDomainURLs(); };
+    var changedDomainError = '';
+    try { domainURLs(); } catch (error) { changedDomainError = String(error); }
+    assert(changedDomainError.indexOf('Tabs changed') !== -1, 'domains rejects same-length reordered snapshot');
+    assert(focused.length === beforeDomainFocus && actions.length === beforeDomainActions, 'domains never mutate browser');
     windows = [];
+    assert(domainURLs().length === 0, 'domains no windows yields empty URLs');
     assert(cli(['count']) === '0', 'no windows count');
     assert(cli(['links']) === '', 'no windows yields no links');
     assert(cli(['tabs']).split('\n').length === 1, 'empty list header');

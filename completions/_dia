@@ -14,15 +14,15 @@ _dia_profiles() {
 }
 
 emulate -L zsh
-local cmd=${words[2]} arity=0 pending='' i
+local cmd=${words[2]} arity=0 pending='' i literalAt=99999 explicitKeyword=0
 local -a subcommands flags
-subcommands=(tabs t find f current c count n links l open o help h version v -v --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
+subcommands=(domains ds tabs t find f current c count n links l open o help h version v -v --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
 if (( CURRENT == 2 )); then
   compadd -- "${subcommands[@]}" --help -h
   return
 fi
 case $cmd in
-  t) cmd=tabs ;; f) cmd=find ;; c) cmd=current ;; n) cmd=count ;; l) cmd=links ;;
+  ds) cmd=domains ;; t) cmd=tabs ;; f) cmd=find ;; c) cmd=current ;; n) cmd=count ;; l) cmd=links ;;
   o) cmd=open ;; h) cmd=help ;; fo) cmd=focus ;; cl) cmd=close ;;
   m) cmd=move ;; mv|md) cmd=move-domain ;; nav) cmd=navigate ;;
   e) cmd=exec ;; w) cmd=windows ;; ps) cmd=profiles ;; p) cmd=profile ;; la) cmd=layout ;;
@@ -34,11 +34,31 @@ case $cmd in
     return ;;
   find|focus|profile|layout|open|close) arity=1 ;;
   move|move-domain|navigate|exec) arity=2 ;;
-  tabs|current|count|links|version|windows|profiles) ;;
+  domains|tabs|current|count|links|version|windows|profiles) ;;
   *) return ;;
 esac
+if [[ $cmd == move-domain && ( ${words[3]} == -k || ${words[3]} == --keyword ) ]]; then
+  (( CURRENT == 3 )) && return
+  explicitKeyword=1
+  words[3]=()
+  (( CURRENT-- ))
+  (( CURRENT == 3 )) && return
+fi
+for (( i = 3; i < CURRENT; i++ )); do
+  if [[ ${words[i]} == -- ]] && ! (( explicitKeyword && i == 3 )); then
+    literalAt=$i
+    words[$i]=()
+    (( CURRENT-- ))
+    break
+  fi
+  if (( i >= 3 + arity )); then
+    case ${words[i]} in
+      -p|--profile|-w|--window|-D|--domain|-k|--keyword) (( i++ )) ;;
+    esac
+  fi
+done
 if (( CURRENT <= 2 + arity )); then
-  if (( CURRENT == 3 )) && [[ ${words[CURRENT]} == -* ]]; then
+  if [[ ${words[CURRENT]} == -* ]] && (( CURRENT < literalAt )); then
     compadd -- -h --help
     return
   fi
@@ -48,9 +68,9 @@ if (( CURRENT <= 2 + arity )); then
   esac
   return
 fi
-if [[ $cmd == move-domain ]]; then
+if [[ $cmd == move-domain ]] && (( literalAt > 4 )); then
   case ${words[4]} in
-    -p|--profile|-w|--window|-D|--domain|--pinned|--loading|-n|--dry-run|-E|--exact-domain) return ;;
+    -p|--profile|-w|--window|-D|--domain|-k|--keyword|--pinned|--loading|-n|--dry-run|-E|--exact-domain) return ;;
   esac
 fi
 for (( i = 3 + arity; i < CURRENT; i++ )); do
@@ -59,23 +79,25 @@ for (( i = 3 + arity; i < CURRENT; i++ )); do
     continue
   fi
   case ${words[i]} in
-    -p|--profile|-w|--window|-D|--domain) pending=${words[i]} ;;
+    -p|--profile|-w|--window|-D|--domain|-k|--keyword) pending=${words[i]} ;;
     -h|--help) return ;;
   esac
 done
 case $pending in
   -p|--profile)
-    case $cmd in tabs|find|count|links|move-domain|profiles) _dia_profiles ;; esac
+    case $cmd in domains|tabs|find|count|links|move-domain|profiles) _dia_profiles ;; esac
     return ;;
-  -w|--window|-D|--domain) return ;;
+  -w|--window|-D|--domain|-k|--keyword) return ;;
 esac
+(( CURRENT >= literalAt )) && return
 flags=(-h --help)
 case $cmd in
-  tabs) flags+=(-w --window -p --profile -D --domain -E --exact-domain --pinned --loading -d -detail -s -st -sl) ;;
-  find|count|links|move-domain)
-    flags+=(-w --window -p --profile -D --domain -E --exact-domain --pinned --loading)
-    [[ $cmd == move-domain ]] && flags+=(-n --dry-run) ;;
-  profiles) flags+=(-w --window -p --profile -D --domain -E --exact-domain -c --counts) ;;
+  tabs) flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain --pinned --loading -d -detail -s -st -sl) ;;
+  domains|find|count|links|move-domain)
+    flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain --pinned --loading)
+    [[ $cmd == move-domain ]] && flags+=(-n --dry-run)
+    [[ $cmd == domains ]] && flags+=(-s --subdomains) ;;
+  profiles) flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain -c --counts) ;;
   current|windows|focus|profile|layout) flags+=(-w --window) ;;
 esac
 compadd -- "${flags[@]}"

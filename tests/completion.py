@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as tmp:
         return result.stdout.decode().rstrip('\0').split('\0') if result.stdout else []
 
     commands = complete('')
-    assert {'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
+    assert {'domains', 'ds', 'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
     assert not trace.exists(), 'command completion queried Dia'
     for version in ('version', 'v', '-v', '--version'):
         assert complete(version, '') == ['-h', '--help']
@@ -56,8 +56,14 @@ with tempfile.TemporaryDirectory() as tmp:
     assert trace.read_text().splitlines() == ['profiles']
     assert not marker.exists(), 'Profile data executed as shell code'
     trace.unlink()
-    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-E', '--exact-domain', '--pinned', '--loading', '-n', '--dry-run']
+    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-n', '--dry-run']
     assert not trace.exists(), 'flag completion queried Dia'
+    for domain_command in ('domains', 'ds'):
+        assert {'-s', '--subdomains', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading'} <= set(complete(domain_command, ''))
+        assert complete(domain_command, '-k', '') == []
+    assert not trace.exists(), 'domains flags queried Dia'
+    assert complete('ds', '-p', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
+    trace.unlink()
     assert complete('mv', 'skills.sh', '-p', '') == [], 'incomplete target queried a source Profile'
     assert not trace.exists(), 'incomplete target queried Dia'
     assert complete('mv', 'skills.sh', '--exact-domain', '') == []
@@ -71,7 +77,19 @@ with tempfile.TemporaryDirectory() as tmp:
     assert complete('open', '1', '') == ['-h', '--help']
     trace.unlink()
     assert complete('open', '1', '-p', '') == []
-    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-E', '--exact-domain', '--pinned', '--loading']
+    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading']
+    assert '--keyword' in complete('tabs', '-p', '--', '')
+    assert complete('mv', 'youtube', '--h') == ['-h', '--help']
+    assert complete('tabs', '-k', '') == []
+    assert complete('mv', 'youtube', 'Watch', '-k', '') == []
+    assert complete('mv', 'youtube', '-k', '') == []
+    assert complete('mv', '-k', '') == []
+    assert complete('mv', '--keyword', '--help') == []
+    assert complete('mv', '-k', 'youtube.com/watch', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
+    assert '--keyword' in complete('mv', '-k', 'youtube.com/watch', 'Watch', '')
+    assert complete('exec', '1', '--', '-h', '') == []
+    assert complete('mv', 'youtube', '--', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
+    trace.unlink()
     assert complete('unknown', '') == []
     assert not trace.exists(), 'invalid option or command queried Dia'
     assert complete('help', '') == commands, 'help command candidates changed'
@@ -97,6 +115,8 @@ with tempfile.TemporaryDirectory() as tmp:
         os.write(fd, b"fpath=($DIA_COMPLETION_DIR $fpath); autoload -Uz compinit; compinit -D; bindkey '^I' complete-word\n")
         read_until(b'PROMPT> ')
         os.write(fd, b'dia profile Bob\t')
+        read_until(b"Bob\\'s\\ Work")
+        os.write(fd, b'\x15dia mv -k youtube.com/watch Bob\t')
         read_until(b"Bob\\'s\\ Work")
     finally:
         os.kill(pid, signal.SIGKILL)

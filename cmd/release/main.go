@@ -2,8 +2,11 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"debug/macho"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -114,7 +117,7 @@ end
 `, strings.TrimPrefix(version, "v"), version, artifacts[0].name, artifacts[0].sha256, version, artifacts[1].name, artifacts[1].sha256)
 }
 
-func release(version string) error {
+func release(version, binariesDir string) error {
 	if err := validVersion(version); err != nil {
 		return err
 	}
@@ -151,6 +154,17 @@ func release(version string) error {
 	if err != nil {
 		return err
 	}
+	artifacts := []artifact{{arch: "arm64"}, {arch: "amd64"}}
+	prebuilt := make(map[string][]byte)
+	if binariesDir != "" {
+		for _, a := range artifacts {
+			data, err := readBinary(filepath.Join(binariesDir, a.arch, "dia"), a.arch)
+			if err != nil {
+				return err
+			}
+			prebuilt[a.arch] = data
+		}
+	}
 	if err := os.MkdirAll(dist, 0755); err != nil {
 		return err
 	}
@@ -159,30 +173,32 @@ func release(version string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	artifacts := []artifact{{arch: "arm64"}, {arch: "amd64"}}
 	var checksums strings.Builder
 	for i := range artifacts {
 		a := &artifacts[i]
 		a.name = fmt.Sprintf("dia-cli_%s_darwin_%s.tar.gz", strings.TrimPrefix(version, "v"), a.arch)
-		binary := filepath.Join(tmp, "dia-"+a.arch)
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X main.version="+strings.TrimPrefix(version, "v"), "-o", binary, ".")
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=darwin", "GOARCH="+a.arch)
-		cmd.Dir = root
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("build %s: %w: %s", a.arch, err, output)
-		}
-		data, err := os.ReadFile(binary)
-		if err != nil {
-			return err
+		data := prebuilt[a.arch]
+		if binariesDir == "" {
+			binary := filepath.Join(tmp, "dia-"+a.arch)
+			cmd := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w -X main.version="+strings.TrimPrefix(version, "v"), "-o", binary, ".")
+			cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=darwin", "GOARCH="+a.arch)
+			cmd.Dir = root
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("build %s: %w: %s", a.arch, err, output)
+			}
+			data, err = readBinary(binary, a.arch)
+			if err != nil {
+				return err
+			}
+			if err := os.Remove(binary); err != nil {
+				return err
+			}
 		}
 		a.sha256, err = writeArchive(filepath.Join(tmp, a.name), data, license, completion)
 		if err != nil {
 			return err
 		}
 		fmt.Fprintf(&checksums, "%s  %s\n", a.sha256, a.name)
-		if err := os.Remove(binary); err != nil {
-			return err
-		}
 	}
 	if err := os.WriteFile(filepath.Join(tmp, "checksums.txt"), []byte(checksums.String()), 0644); err != nil {
 		return err
@@ -200,12 +216,34 @@ func release(version string) error {
 	return nil
 }
 
+func readBinary(path, arch string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s binary: %w", arch, err)
+	}
+	binary, err := macho.NewFile(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("read %s binary: %w", arch, err)
+	}
+	defer binary.Close()
+	want := macho.CpuArm64
+	if arch == "amd64" {
+		want = macho.CpuAmd64
+	}
+	if binary.Cpu != want || binary.Type != macho.TypeExec {
+		return nil, fmt.Errorf("expected %s Mach-O executable: %s", arch, path)
+	}
+	return data, nil
+}
+
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: go run ./cmd/release vX.Y.Z")
+	binariesDir := flag.String("binaries-dir", "", "package verified native binaries from DIR/{arm64,amd64}/dia")
+	flag.Parse()
+	if flag.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "usage: go run ./cmd/release [--binaries-dir DIR] vX.Y.Z")
 		os.Exit(2)
 	}
-	if err := release(os.Args[1]); err != nil {
+	if err := release(flag.Arg(0), *binariesDir); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

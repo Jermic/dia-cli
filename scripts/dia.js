@@ -50,6 +50,30 @@ function domainMatch(url, domains) {
     });
 }
 
+function urlMatch(url, domains, keywords) {
+    if ((!domains || !domains.length) && (!keywords || !keywords.length)) return true;
+    return !!(domains && domains.length && domainMatch(url, domains)) || !!(keywords && keywords.some(function (keyword) {
+        return String(url == null ? '' : url).toLowerCase().indexOf(keyword.toLowerCase()) !== -1;
+    }));
+}
+
+function readTabs(profile, properties) {
+    var snapshot = {id: profile.tabs.id()};
+    properties.forEach(function (property) { snapshot[property] = profile.tabs[property](); });
+    if (properties.length) {
+        var after = profile.tabs.id();
+        if (snapshot.id.length !== after.length || snapshot.id.some(function (id, i) { return String(id) !== String(after[i]); }) || properties.some(function (property) { return snapshot[property].length !== snapshot.id.length; })) {
+            throw Error('Tabs changed while reading. Please retry.');
+        }
+    }
+    return snapshot;
+}
+
+function validatePlan(plan) {
+    if (String(plan.tab.id()) !== String(plan.id)) throw Error('Tab ID changed since scan. Please retry.');
+    if (String(plan.tab.url()) !== String(plan.url)) throw Error('Tab URL changed since scan. Please retry.');
+}
+
 function progress(c, phase, window, profile, completed, total) {
     if (!c.progress) return;
     var event = {phase: phase, window: cell(window), profile: cell(profile), completed: completed || 0, total: total || 0};
@@ -111,6 +135,7 @@ function run(argv) {
 
     var rows = [], matches = [], seen = Object.create(null), selected = 0, plans = [];
     var query = c.name === 'find' ? c.args[0].toLowerCase() : '';
+    var urlFiltered = !!(c.domains && c.domains.length || c.keywords && c.keywords.length);
     windows.forEach(function (w, wi) {
         var wid = String(w.id());
         progress(c, 'scan', wid, '', wi, windows.length);
@@ -128,11 +153,9 @@ function run(argv) {
                     var profileRow = [wid, p.index(), name];
                     if (c.counts) {
                         var unique = Object.create(null);
-                        var profileIds = p.tabs.id();
-                        var profileURLs = c.domains && c.domains.length ? p.tabs.url() : [];
-                        if (c.domains && c.domains.length && profileURLs.length !== profileIds.length) throw Error('Tabs changed while reading. Please retry.');
-                        profileIds.forEach(function (id, i) {
-                            if (domainMatch(profileURLs.length ? profileURLs[i] : '', c.domains)) unique[String(id)] = true;
+                        var profileTabs = readTabs(p, urlFiltered ? ['url'] : []);
+                        profileTabs.id.forEach(function (id, i) {
+                            if (urlMatch(urlFiltered ? profileTabs.url[i] : '', c.domains, c.keywords)) unique[String(id)] = true;
                         });
                         profileRow.push(Object.keys(unique).length);
                     }
@@ -140,7 +163,19 @@ function run(argv) {
                 }
                 return;
             }
-            var ids = p.tabs.id();
+            if (c.name !== 'move-domain' && c.profile && name !== c.profile) return;
+            var listing = c.name === 'tabs' || c.name === 'links' || c.name === 'find';
+            var urlsNeeded = listing || urlFiltered || c.name === 'move-domain' || c.name === 'domains';
+            var properties = [];
+            var selectedProfile = !c.profile || name === c.profile;
+            if (selectedProfile) {
+                if (listing) properties.push('title');
+                if (urlsNeeded) properties.push('url');
+                if (c.pinned) properties.push('ispinned');
+                if (c.loading) properties.push('loading');
+            }
+            var snapshot = readTabs(p, properties);
+            var ids = snapshot.id;
             if (c.name === 'move-domain') {
                 ids.forEach(function (id) {
                     var key = String(id);
@@ -150,17 +185,12 @@ function run(argv) {
             }
             if (c.profile && name !== c.profile) return;
             selected++;
-            var listing = c.name === 'tabs' || c.name === 'links' || c.name === 'find';
-            var urlsNeeded = listing || c.domains && c.domains.length || c.name === 'move-domain';
-            var titles = listing ? p.tabs.title() : [];
-            var urls = urlsNeeded ? p.tabs.url() : [];
-            var pinned = c.pinned ? p.tabs.ispinned() : [];
-            var loading = c.loading ? p.tabs.loading() : [];
-            if (listing && ids.length !== titles.length || urlsNeeded && ids.length !== urls.length || c.pinned && ids.length !== pinned.length || c.loading && ids.length !== loading.length) {
-                throw Error('Tabs changed while reading. Please retry.');
-            }
+            var titles = snapshot.title || [];
+            var urls = snapshot.url || [];
+            var pinned = snapshot.ispinned || [];
+            var loading = snapshot.loading || [];
             ids.forEach(function (id, i) {
-                if (c.pinned && !pinned[i] || c.loading && !loading[i] || !domainMatch(urlsNeeded ? urls[i] : '', c.domains)) return;
+                if (c.pinned && !pinned[i] || c.loading && !loading[i] || !urlMatch(urlsNeeded ? urls[i] : '', c.domains, c.keywords)) return;
                 var key = JSON.stringify([wid, id]);
                 if (seen[key]) return;
                 if (c.name === 'find' && (String(titles[i]) + '\n' + String(urls[i])).toLowerCase().indexOf(query) === -1) return;
@@ -168,6 +198,7 @@ function run(argv) {
                 if (c.name === 'focus') {
                     if (String(id) === c.args[0]) matches.push(p.tabs.byId(id));
                 } else if (c.name === 'count') rows.push(id);
+                else if (c.name === 'domains') rows.push(String(urls[i] == null ? '' : urls[i]));
                 else if (c.name === 'move-domain') windowCandidates.push({window: wid, id: id, source: name, url: urls[i], tab: p.tabs.byId(id)});
                 else if (listing) rows.push([wid, name, id, titles[i], urls[i]]);
             });
@@ -192,6 +223,7 @@ function run(argv) {
         matches[0].focus();
         result.output = 'Focused ' + cell(c.args[0]);
     } else if (c.name === 'move-domain') {
+        plans.forEach(validatePlan);
         var tally = {matched: plans.length, moved: 0, skipped: 0, failed: 0, remaining: 0};
         plans.forEach(function (plan) { if (plan.skip) tally.skipped++; });
         tally.remaining = tally.matched - tally.skipped;
@@ -205,6 +237,7 @@ function run(argv) {
                 if (plans[i].skip) continue;
                 progress(c, 'moving', plans[i].window, c.target, tally.moved, totalMoves);
                 try {
+                    validatePlan(plans[i]);
                     plans[i].tab.move({to: plans[i].target});
                 } catch (error) {
                     tally.failed = 1;
@@ -221,6 +254,7 @@ function run(argv) {
         if (!result.error) progress(c, 'done', '', c.target, c.dryRun ? plans.length : tally.moved, c.dryRun ? plans.length : totalMoves);
     } else if (c.name === 'profiles') result.output = table(c.counts ? ['WINDOW', 'INDEX', 'PROFILE', 'COUNT'] : ['WINDOW', 'INDEX', 'PROFILE'], rows);
     else if (c.name === 'count') result.output = String(rows.length);
+    else if (c.name === 'domains') result.urls = rows;
     else {
         if (c.name === 'tabs' || c.name === 'links') {
             rows = rows.map(function (row, i) {

@@ -22,7 +22,7 @@ func (p *presentation) title() string {
 		}
 		return "Move tabs"
 	}
-	return map[string]string{"tabs": "Tabs", "find": "Search tabs", "current": "Current tab", "profiles": "Profiles", "windows": "Windows"}[p.command.Name]
+	return map[string]string{"domains": "Domains", "tabs": "Tabs", "find": "Search tabs", "current": "Current tab", "profiles": "Profiles", "windows": "Windows"}[p.command.Name]
 }
 
 func (p *presentation) start() {
@@ -32,7 +32,7 @@ func (p *presentation) start() {
 	fmt.Fprintf(p.out, "┌  %s\n│\n", p.title())
 	c := p.command
 	context := false
-	for _, pair := range [][2]string{{"Profile", c.Profile}, {"Domain", displayDomains(c.Domains)}} {
+	for _, pair := range [][2]string{{"Profile", c.Profile}, {"Domain", displayDomains(c.Domains)}, {"Keyword", strings.Join(c.Keywords, ", ")}} {
 		if pair[1] != "" {
 			fmt.Fprintf(p.out, "│  %-7s %s\n", pair[0], safeText(pair[1]))
 			context = true
@@ -143,12 +143,27 @@ func (p *presentation) finish(result Result) {
 	}
 	if p.title() == "" {
 		if result.Output != "" {
-			fmt.Fprintln(p.out, "◇  "+result.Output)
+			text := result.Output
+			c := p.command
+			if isRow(c.Name) && c.Name != "exec" {
+				verb := map[string]string{"open": "Focused", "close": "Closed", "move": "Moved", "navigate": "Navigated"}[c.Name]
+				text = verb + " tab " + c.Args[0]
+				if c.Name == "move" {
+					text += " to " + safeText(c.Args[1])
+				}
+				if c.Name == "navigate" {
+					text += " to " + safeText(c.Args[1])
+				}
+			}
+			fmt.Fprintln(p.out, "◇  "+text)
 		}
 		return
 	}
 	n := max(0, len(strings.Split(strings.TrimSpace(result.Output), "\n"))-1)
 	noun := "tab"
+	if p.command.Name == "domains" {
+		noun = "domain"
+	}
 	if p.command.Name == "profiles" {
 		noun = "profile"
 	}
@@ -162,6 +177,8 @@ func (p *presentation) finish(result Result) {
 	switch p.command.Name {
 	case "tabs", "find", "current":
 		p.body(renderTabs(result.Output, p.command.Detail || p.command.Name != "tabs"))
+	case "domains":
+		p.body(renderTable(result.Output, nil, 1))
 	case "profiles":
 		p.body(renderTable(result.Output, []string{"WINDOW"}, 1, 3))
 	case "windows":
