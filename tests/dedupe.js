@@ -2,7 +2,7 @@ ObjC.import('Foundation');
 
 function run(argv) {
     var source = ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null));
-    var windows, actions, events, hook, assertions = 0;
+    var windows, actions, events, hook, reads, readHook, urlChecks, assertions = 0;
     function assert(ok, label) { assertions++; if (!ok) throw Error('FAIL: ' + label); }
     function tab(id, url, options) {
         var t = {_id: id, _url: url, pinned: false, busy: false};
@@ -19,12 +19,27 @@ function run(argv) {
         };
         return t;
     }
+    function recordRead(key, items) {
+        reads.push({key: key, ids: items.map(function (t) { return t._id; }), phase: events.length ? events[events.length - 1].phase : ''});
+        if (readHook) readHook(key, items);
+    }
     function profile(name, index, items) {
         var p = {items: items, name: function () { return name; }, index: function () { return index; }};
         p.tabs = function () { return p.items; };
         ['id', 'url', 'ispinned', 'loading'].forEach(function (key) {
-            p.tabs[key] = function () { return p.items.map(function (t) { return t[key](); }); };
+            p.tabs[key] = function () { recordRead(key, p.items); return p.items.map(function (t) { return t[key](); }); };
         });
+        p.tabs.whose = function (query) {
+            var collection = {};
+            ['id', 'url', 'ispinned', 'loading'].forEach(function (key) {
+                collection[key] = function () {
+                    var items = p.items.filter(function (t) { return query._or.some(function (condition) { return condition.id === t._id; }); });
+                    recordRead(key, items);
+                    return items.map(function (t) { return t[key](); });
+                };
+            });
+            return collection;
+        };
         p.tabs.byId = function (id) {
             var t = p.items.filter(function (item) { return item._id === id; })[0];
             if (!t) throw Error('Tab disappeared');
@@ -35,13 +50,13 @@ function run(argv) {
     function window(id, profiles, active) {
         return {items: profiles, active: active || 'none', id: function () { return id; }, profiles: function () { return this.items; }, activeTab: function () { var w = this; return {id: function () { return w.active; }}; }};
     }
-    var cli = new Function('Application', 'record', source + '\nprogress = record; return run;')(function () {
+    var cli = new Function('Application', 'record', 'recordHost', source + '\nprogress = record; var host = webHost; webHost = function (url) { recordHost(url); return host(url); }; return run;')(function () {
         return {running: function () { return true; }, windows: function () { return windows; }};
     }, function (c, phase, window, profile, completed, total) {
         events.push({phase: phase, completed: completed || 0, total: total || 0});
         if (hook) hook(phase);
-    });
-    function reset(items) { actions = []; events = []; hook = null; windows = items; }
+    }, function (url) { urlChecks.push(url); });
+    function reset(items) { actions = []; events = []; reads = []; urlChecks = []; readHook = null; hook = null; windows = items; }
     function call(extra) {
         var c = {name: 'dedupe', dryRun: true, progress: true};
         Object.keys(extra || {}).forEach(function (key) { c[key] = extra[key]; });
@@ -50,6 +65,8 @@ function run(argv) {
         assert(d.duplicates === d.closed + d.skipped + d.remaining && d.failed <= d.remaining, 'consistent tally');
         return result;
     }
+    var emptySnapshot = new Function(source + '\nreturn readTabs;')()({tabs: {whose: function () { throw Error('Empty ID query'); }}}, ['url', 'ispinned'], []);
+    assert(emptySnapshot.id.length === 0 && emptySnapshot.url.length === 0 && emptySnapshot.ispinned.length === 0, 'empty target IDs return empty arrays without remote calls');
     var url = 'https://example.com/path?a=1#part';
     function basic() {
         var a = tab('a', url), b = tab('b', url), c = tab('c', url);
@@ -68,6 +85,8 @@ function run(argv) {
     var variants = [url, url + 'x', url.replace('example', 'EXAMPLE'), url.replace('https:', 'http:'), url.replace('#part', ''), url.replace('?a=1', '?a=2'), url.replace('/path', '/path/'), 'file:///test', '', 'https://'];
     reset([window('w', [profile('Work', 1, variants.map(function (u, i) { return tab('u' + i, u); }))])]);
     assert(call().dedupe.duplicates === 0, 'full raw URL equality retains query fragment scheme host case and trailing slash differences');
+    assert(!reads.some(function (read) { return read.key === 'ispinned' || read.key === 'loading'; }), 'unique URLs never read protection properties');
+    assert(urlChecks.length === 0, 'unique URLs need no Foundation URL validation without domain filters');
     reset([window('w', [profile('Work', 1, [tab('f1', 'file:///x'), tab('f2', 'file:///x'), tab('blank1', ''), tab('blank2', ''), tab('bad1', 'https://'), tab('bad2', 'https://')])])]);
     assert(call({dryRun: false}).dedupe.duplicates === 0 && actions.length === 0, 'nonHTTP empty and invalid URL never close');
     fixture = basic(); fixture.b.pinned = true;
@@ -148,6 +167,46 @@ function run(argv) {
     hook = function (phase) { if (phase === 'plan') second.items[1]._url += '/new'; };
     partial = call({dryRun: false});
     assert(actions.length === 0 && partial.dedupe.remaining === 3, 'later window preflight invalidation prevents earlier window closes');
+    fixture = basic();
+    fixture.b.afterClose = function () { fixture.w.items.push(profile('New', 2, [fixture.a])); };
+    partial = call({dryRun: false});
+    assert(actions.join(',') === 'b' && partial.error.indexOf('membership') !== -1, 'new Profile sharing keeper stops subsequent close');
+    fixture = basic();
+    var unrelated = tab('unrelated', 'https://elsewhere.test');
+    fixture.p.items.push(unrelated);
+    fixture.b.afterClose = function () {
+        unrelated._url += '/navigation';
+        fixture.p.items.reverse();
+        fixture.p.items.push(tab('new-unrelated', 'https://new.test'));
+    };
+    partial = call({dryRun: false});
+    assert(actions.join(',') === 'b,c' && !partial.error, 'unrelated addition navigation and reorder do not block valid close');
+    assert(!reads.some(function (read) { return (read.phase === 'closing' || read.phase === 'closed') && read.key !== 'id' && read.ids.some(function (id) { return id === 'unrelated' || id === 'new-unrelated'; }); }), 'per-close property reads exclude unrelated tabs');
+    fixture = basic();
+    fixture.p.items.push(tab('d', url + '/second'), tab('e', url + '/second'));
+    for (var n = 0; n < 20; n++) fixture.p.items.push(tab('unique' + n, 'https://unique.test/' + n));
+    partial = call({dryRun: false});
+    var preflightURLs = reads.filter(function (read) { return read.phase === 'plan' && read.key === 'url'; });
+    assert(partial.dedupe.closed === 3 && preflightURLs.length === 1 && preflightURLs[0].ids.length === 5, 'many duplicate groups share one per-source window preflight');
+    assert(reads.filter(function (read) { return read.key === 'ispinned' || read.key === 'loading'; }).every(function (read) { return read.ids.every(function (id) { return id.indexOf('unique') !== 0; }); }), 'unrelated unique tabs never need protection properties');
+    var propertyItems = reads.reduce(function (sum, read) { return sum + (read.key === 'id' ? 0 : read.ids.length); }, 0);
+    assert(propertyItems < 150, '25 tabs two groups three closes stay below two full property passes');
+    fixture = basic();
+    var stateURLReads = 0;
+    readHook = function (key, items) {
+        if (key === 'url' && ++stateURLReads === 2) fixture.b._url += '/changed';
+    };
+    error = '';
+    try { call({dryRun: false}); } catch (e) { error = String(e); }
+    assert(actions.length === 0 && error.indexOf('changed') !== -1, 'navigation between initial grouping and protection snapshot never closes');
+    fixture = basic();
+    stateURLReads = 0;
+    readHook = function (key, items) {
+        if (key === 'url' && ++stateURLReads === 2) fixture.p.items.reverse();
+    };
+    error = '';
+    try { call({dryRun: false}); } catch (e) { error = String(e); }
+    assert(actions.length === 0 && error.indexOf('Tabs changed while reading') !== -1, 'targeted property snapshot rejects same-size ID reorder');
     reset([window('empty', [profile('Work', 1, [])])]);
     windows[0].activeTab = function () { throw Error('No active tab'); };
     assert(call({dryRun: false}).dedupe.duplicates === 0, 'empty Profiles need no active tab');

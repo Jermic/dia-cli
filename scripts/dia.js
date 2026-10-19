@@ -57,11 +57,20 @@ function urlMatch(url, domains, keywords) {
     }));
 }
 
-function readTabs(profile, properties) {
-    var snapshot = {id: profile.tabs.id()};
-    properties.forEach(function (property) { snapshot[property] = profile.tabs[property](); });
+function readTabs(profile, properties, ids) {
+    var tabs = profile.tabs;
+    if (ids) {
+        if (!ids.length) {
+            var empty = {id: []};
+            properties.forEach(function (property) { empty[property] = []; });
+            return empty;
+        }
+        tabs = tabs.whose({_or: ids.map(function (id) { return {id: id}; })});
+    }
+    var snapshot = {id: tabs.id()};
+    properties.forEach(function (property) { snapshot[property] = tabs[property](); });
     if (properties.length) {
-        var after = profile.tabs.id();
+        var after = tabs.id();
         if (snapshot.id.length !== after.length || snapshot.id.some(function (id, i) { return String(id) !== String(after[i]); }) || properties.some(function (property) { return snapshot[property].length !== snapshot.id.length; })) {
             throw Error('Tabs changed while reading. Please retry.');
         }
@@ -92,7 +101,10 @@ function dedupe(c, windows) {
             var name = String(p.name()), key = JSON.stringify([p.index(), name]);
             var chosen = !c.profile || c.profile === name;
             progress(c, 'profile', wid, name, pi, profiles.length);
-            var snapshot = readTabs(p, chosen ? ['url', 'ispinned', 'loading'] : []);
+            var properties = chosen ? ['url'] : [];
+            if (chosen && c.pinned) properties.push('ispinned');
+            if (chosen && c.loading) properties.push('loading');
+            var snapshot = readTabs(p, properties);
             snapshots.push({profile: p, name: name, key: key, snapshot: snapshot, chosen: chosen});
             snapshot.id.forEach(function (id) {
                 id = String(id);
@@ -107,15 +119,24 @@ function dedupe(c, windows) {
             var byURL = Object.create(null), snapshot = entry.snapshot;
             snapshot.id.forEach(function (id, i) {
                 var url = String(snapshot.url[i] == null ? '' : snapshot.url[i]);
-                if (!webHost(url) || !urlMatch(url, c.domains, c.keywords) || c.pinned && !snapshot.ispinned[i] || c.loading && !snapshot.loading[i]) return;
+                if (!urlMatch(url, c.domains, c.keywords) || c.pinned && !snapshot.ispinned[i] || c.loading && !snapshot.loading[i]) return;
                 if (!byURL[url]) byURL[url] = [];
                 if (byURL[url].some(function (tab) { return tab.id === String(id); })) return;
-                var reason = membership[String(id)].length > 1 ? 'shared across Profiles' : snapshot.ispinned[i] ? 'pinned' : String(id) === active ? 'active tab' : '';
-                byURL[url].push({id: String(id), url: url, membership: membership[String(id)], reason: reason, loading: !!snapshot.loading[i]});
+                byURL[url].push({id: String(id), url: url, membership: membership[String(id)]});
             });
-            Object.keys(byURL).forEach(function (url) {
+            var duplicateURLs = Object.keys(byURL).filter(function (url) { return byURL[url].length > 1 && webHost(url); });
+            var ids = [];
+            duplicateURLs.forEach(function (url) { byURL[url].forEach(function (tab) { ids.push(tab.id); }); });
+            var details = readTabs(entry.profile, ['url', 'ispinned', 'loading'], ids), state = Object.create(null);
+            details.id.forEach(function (id, i) { state[String(id)] = {url: String(details.url[i]), pinned: details.ispinned[i], loading: details.loading[i]}; });
+            duplicateURLs.forEach(function (url) {
                 var members = byURL[url];
-                if (members.length < 2) return;
+                members.forEach(function (tab) {
+                    var current = state[tab.id];
+                    if (!current || current.url !== url) throw Error('Tab URL or ID changed since scan. Please retry.');
+                    tab.reason = tab.membership.length > 1 ? 'shared across Profiles' : current.pinned ? 'pinned' : tab.id === active ? 'active tab' : '';
+                    tab.loading = !!current.loading;
+                });
                 var loading = members.some(function (tab) { return tab.loading; });
                 var keeper = members.filter(function (tab) { return tab.reason && !tab.loading; })[0] || members[0];
                 var group = {window: w, wid: wid, profile: entry.profile, name: entry.name, key: entry.key, members: members, keeper: keeper};
@@ -140,21 +161,37 @@ function dedupe(c, windows) {
     if (c.profile && !selected) throw Error('No matching source profile name: ' + cell(c.profile));
     tally.remaining = tally.duplicates - tally.skipped;
     var closed = Object.create(null);
-    function validate(group, candidate) {
-        var profiles = group.window.profiles(), current = Object.create(null), source, state = Object.create(null);
-        profiles.forEach(function (p) {
+    function snapshotGroups(window, selectedGroups) {
+        var ids = [], bySource = Object.create(null), current = Object.create(null), sources = Object.create(null), states = Object.create(null);
+        selectedGroups.forEach(function (group) {
+            if (!bySource[group.key]) bySource[group.key] = [];
+            group.members.forEach(function (member) {
+                if (closed[JSON.stringify([group.wid, member.id])]) return;
+                if (ids.indexOf(member.id) === -1) ids.push(member.id);
+                if (bySource[group.key].indexOf(member.id) === -1) bySource[group.key].push(member.id);
+            });
+        });
+        window.profiles().forEach(function (p) {
             var key = JSON.stringify([p.index(), String(p.name())]);
-            var snapshot = readTabs(p, key === group.key ? ['url', 'ispinned', 'loading'] : []);
-            if (key === group.key) source = p;
-            snapshot.id.forEach(function (id, i) {
+            var membership = readTabs(p, [], ids);
+            membership.id.forEach(function (id) {
                 id = String(id);
                 if (!current[id]) current[id] = [];
                 current[id].push(key);
-                if (key === group.key) state[id] = {url: String(snapshot.url[i]), pinned: snapshot.ispinned[i], loading: snapshot.loading[i]};
             });
+            if (bySource[key]) {
+                sources[key] = p;
+                var snapshot = readTabs(p, ['url', 'ispinned', 'loading'], bySource[key]);
+                var state = states[key] = Object.create(null);
+                snapshot.id.forEach(function (id, i) { state[String(id)] = {url: String(snapshot.url[i]), pinned: snapshot.ispinned[i], loading: snapshot.loading[i]}; });
+            }
         });
+        return {membership: current, sources: sources, states: states, active: String(window.activeTab().id())};
+    }
+    function validate(group, candidate, snapshot) {
+        var current = snapshot.membership, source = snapshot.sources[group.key], state = snapshot.states[group.key];
         if (!source) throw Error('Profile changed since scan. Please retry.');
-        var active = String(group.window.activeTab().id());
+        var active = snapshot.active;
         group.members.forEach(function (member) {
             if (closed[JSON.stringify([group.wid, member.id])]) return;
             if (!current[member.id] || JSON.stringify(current[member.id]) !== JSON.stringify(member.membership)) throw Error('Tab membership changed since scan. Please retry.');
@@ -168,7 +205,12 @@ function dedupe(c, windows) {
     progress(c, 'plan', '', '', tally.duplicates, tally.duplicates);
     var currentPlan;
     try {
-        groups.forEach(function (group) { if (group.members.some(function (member) { return member.close; })) validate(group); });
+        windows.forEach(function (window) {
+            var selectedGroups = groups.filter(function (group) { return group.window === window && group.members.some(function (member) { return member.close; }); });
+            if (!selectedGroups.length) return;
+            var snapshot = snapshotGroups(window, selectedGroups);
+            selectedGroups.forEach(function (group) { validate(group, null, snapshot); });
+        });
     } catch (error) {
         tally.failed = 1;
         result.error = 'Dedupe stopped before closing tabs: ' + cell(error);
@@ -178,7 +220,7 @@ function dedupe(c, windows) {
             currentPlan = plans[i];
             progress(c, 'closing', '', currentPlan.group.name, tally.closed, plans.length);
             try {
-                validate(currentPlan.group, currentPlan.tab).close();
+                validate(currentPlan.group, currentPlan.tab, snapshotGroups(currentPlan.group.window, [currentPlan.group])).close();
             } catch (error) {
                 tally.failed = 1;
                 result.error = 'Dedupe stopped in Profile ' + cell(currentPlan.group.name) + ': ' + cell(error);
