@@ -71,12 +71,34 @@ type MoveResult struct {
 	Remaining int `json:"remaining"`
 }
 
+type DedupeResult struct {
+	Groups     int `json:"groups"`
+	Duplicates int `json:"duplicates"`
+	Closed     int `json:"closed"`
+	Skipped    int `json:"skipped"`
+	Failed     int `json:"failed"`
+	Remaining  int `json:"remaining"`
+}
+
+func (d *DedupeResult) validate(preview bool, reason string) error {
+	if d == nil {
+		return errors.New("invalid Dia response: missing dedupe result")
+	}
+	if d.Groups < 0 || d.Duplicates < 0 || d.Closed < 0 || d.Skipped < 0 || d.Failed < 0 || d.Remaining < 0 ||
+		d.Closed > d.Duplicates || d.Skipped > d.Duplicates-d.Closed || d.Remaining != d.Duplicates-d.Closed-d.Skipped || d.Failed > d.Remaining ||
+		preview && d.Closed != 0 || reason == "" && (d.Failed != 0 || !preview && d.Remaining != 0) {
+		return errors.New("invalid Dia response: inconsistent dedupe counts")
+	}
+	return nil
+}
+
 type Result struct {
-	URLs   []string    `json:"urls,omitempty"`
-	Output string      `json:"output"`
-	Tabs   []TabRef    `json:"tabs,omitempty"`
-	Move   *MoveResult `json:"move,omitempty"`
-	Error  string      `json:"error,omitempty"`
+	Dedupe *DedupeResult `json:"dedupe,omitempty"`
+	URLs   []string      `json:"urls,omitempty"`
+	Output string        `json:"output"`
+	Tabs   []TabRef      `json:"tabs,omitempty"`
+	Move   *MoveResult   `json:"move,omitempty"`
+	Error  string        `json:"error,omitempty"`
 }
 
 const help = `Control Dia tabs, windows, and profiles from your terminal.
@@ -85,6 +107,7 @@ USAGE
   dia <command> [arguments] [flags]
 
 CORE COMMANDS
+  dedupe, dd              Preview duplicate tabs; -a closes safe duplicates
   tabs, t                 List tabs, sorted by title
   find, f <text>          Search titles and URLs
   current, c              Show the active tab
@@ -116,7 +139,8 @@ FILTERS AND FLAGS
   --keyword, -k <text>   Match URL text, case-insensitive; repeatable
   --exact-domain, -E      Match plain domains exactly (requires a domain)
   --window, -w <id>       Select one window
-  --dry-run, -n           Plan move-domain without moving
+  --dry-run, -n           Preview move-domain or dedupe without changes
+  --apply, -a             Close safe duplicates (dedupe only)
   --counts, -c            Show profile membership counts
   -d, -detail             Show full URLs beside tab titles
   --subdomains, -s        Count full hosts instead of roots (domains only)
@@ -138,13 +162,13 @@ EXAMPLES
   dia mv youtube Watch -n`
 
 var aliases = map[string]string{
-	"ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
+	"dd": "dedupe", "ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
 	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "mv": "move-domain", "md": "move-domain",
 	"nav": "navigate", "la": "layout", "e": "exec", "v": "version", "-v": "version",
 }
 
 var arities = map[string]int{
-	"domains": 0, "help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
+	"dedupe": 0, "domains": 0, "help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
 	"profile": 1, "windows": 0, "layout": 1, "open": 1, "close": 1, "move": 2, "move-domain": 2,
 	"navigate": 2, "exec": 2,
 }
@@ -250,6 +274,7 @@ func parse(argv []string) (Command, error) {
 		}
 		return c, nil
 	}
+	apply, dryRun := false, false
 	explicitKeyword := name == "move-domain" && len(argv) > 1 && (argv[1] == "-k" || argv[1] == "--keyword")
 	if explicitKeyword && len(argv) < 3 {
 		return c, errors.New("--keyword requires a value")
@@ -381,10 +406,16 @@ func parse(argv []string) (Command, error) {
 				c.Sort = "title"
 			}
 		case "--dry-run", "-n":
-			if name != "move-domain" {
-				return c, errors.New("--dry-run is valid only for move-domain")
+			if name != "move-domain" && name != "dedupe" {
+				return c, errors.New("--dry-run is valid only for move-domain or dedupe")
 			}
 			c.DryRun = true
+			dryRun = true
+		case "--apply", "-a":
+			if name != "dedupe" {
+				return c, errors.New("--apply is valid only for dedupe")
+			}
+			apply = true
 		case "--counts", "-c":
 			if name != "profiles" {
 				return c, errors.New("--counts is valid only for profiles")
@@ -393,6 +424,12 @@ func parse(argv []string) (Command, error) {
 		default:
 			return c, fmt.Errorf("unexpected argument: %s", flag)
 		}
+	}
+	if name == "dedupe" {
+		if apply && dryRun {
+			return c, errors.New("--apply and --dry-run cannot be combined")
+		}
+		c.DryRun = !apply
 	}
 	if c.Sort == "url" && !c.Detail {
 		return c, errors.New("link sorting (-sl) requires -d (or -detail)")
@@ -445,7 +482,7 @@ func parse(argv []string) (Command, error) {
 }
 
 func isFiltered(name string) bool {
-	return name == "domains" || name == "tabs" || name == "find" || name == "count" || name == "links" || name == "move-domain"
+	return name == "dedupe" || name == "domains" || name == "tabs" || name == "find" || name == "count" || name == "links" || name == "move-domain"
 }
 
 func isRow(name string) bool {
@@ -538,6 +575,11 @@ func backend(c Command, onProgress func(Progress)) (Result, error) {
 	if c.Name == "move-domain" && result.Move == nil {
 		return Result{}, errors.New("invalid Dia response: missing move result")
 	}
+	if c.Name == "dedupe" {
+		if err := result.Dedupe.validate(c.DryRun, result.Error); err != nil {
+			return Result{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -550,7 +592,7 @@ func diagnosticSuffix(text string) string {
 
 func (p Progress) validate() error {
 	switch p.Phase {
-	case "scan", "profile", "preflight", "plan", "moving", "moved", "failure", "done":
+	case "scan", "profile", "preflight", "plan", "moving", "moved", "closing", "closed", "failure", "done":
 	default:
 		return errors.New("unknown progress phase")
 	}
@@ -604,7 +646,7 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 	}
 	p.start()
 	var onProgress func(Progress)
-	if c.Name == "move-domain" && mode.stderrTTY {
+	if (c.Name == "move-domain" || c.Name == "dedupe") && mode.stderrTTY {
 		c.Progress = true
 		onProgress = p.progress
 	}
@@ -613,6 +655,12 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 	if err != nil {
 		p.fail(err.Error())
 		return 1
+	}
+	if c.Name == "dedupe" {
+		if err := result.Dedupe.validate(c.DryRun, result.Error); err != nil {
+			p.fail(err.Error())
+			return 1
+		}
 	}
 	if (c.Name == "tabs" || c.Name == "find") && mode.stdoutTTY && result.Error == "" {
 		if err := cache.save(result.Tabs); err != nil {

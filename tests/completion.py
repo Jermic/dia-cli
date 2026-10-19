@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory() as tmp:
         return result.stdout.decode().rstrip('\0').split('\0') if result.stdout else []
 
     commands = complete('')
-    assert {'domains', 'ds', 'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
+    assert {'dedupe', 'dd', 'domains', 'ds', 'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
     assert not trace.exists(), 'command completion queried Dia'
     for version in ('version', 'v', '-v', '--version'):
         assert complete(version, '') == ['-h', '--help']
@@ -62,6 +62,14 @@ with tempfile.TemporaryDirectory() as tmp:
         assert {'-s', '--subdomains', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading'} <= set(complete(domain_command, ''))
         assert complete(domain_command, '-k', '') == []
     assert not trace.exists(), 'domains flags queried Dia'
+    for dedupe_command in ('dedupe', 'dd'):
+        assert {'-a', '--apply', '-n', '--dry-run', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-w', '--window'} <= set(complete(dedupe_command, ''))
+        assert complete(dedupe_command, '-k', '') == []
+        assert complete(dedupe_command, '-D', '') == []
+        assert complete(dedupe_command, '--', '') == []
+    assert not trace.exists(), 'dedupe flag completion queried Dia'
+    assert complete('dd', '-p', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
+    trace.unlink()
     assert complete('ds', '-p', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
     trace.unlink()
     assert complete('mv', 'skills.sh', '-p', '') == [], 'incomplete target queried a source Profile'

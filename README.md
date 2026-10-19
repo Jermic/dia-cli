@@ -20,11 +20,11 @@ If you previously used the Oh My Zsh plugin, remove only `dia-cli` from the exis
 
 ### Install a release archive manually
 
-Download the archive for your Mac from the [latest GitHub Release](https://github.com/Jermic/dia-cli/releases/latest): `darwin_arm64` for Apple Silicon or `darwin_amd64` for Intel. Download `checksums.txt` from the same release, then verify and install the selected archive. For example, after downloading version 0.3.0 for Apple Silicon:
+Download the archive for your Mac from the [latest GitHub Release](https://github.com/Jermic/dia-cli/releases/latest): `darwin_arm64` for Apple Silicon or `darwin_amd64` for Intel. Download `checksums.txt` from the same release, then verify and install the selected archive. For example, after downloading version 0.4.0 for Apple Silicon:
 
 ```zsh
-grep '  dia-cli_0.3.0_darwin_arm64.tar.gz$' checksums.txt | shasum -a 256 -c - &&
-tar -xzf dia-cli_0.3.0_darwin_arm64.tar.gz &&
+grep '  dia-cli_0.4.0_darwin_arm64.tar.gz$' checksums.txt | shasum -a 256 -c - &&
+tar -xzf dia-cli_0.4.0_darwin_arm64.tar.gz &&
 mkdir -p "$HOME/.local/bin" &&
 install -m 0755 dia "$HOME/.local/bin/dia"
 ```
@@ -56,6 +56,7 @@ Every command has a short form. Both forms accept the same arguments and flags.
 | `find` | `f` | Search tab titles and URLs. |
 | `current` | `c` | Show the active tab. |
 | `count` | `n` | Count distinct window and tab pairs. |
+| `dedupe` | `dd` | Preview duplicate tabs; add `-a` to close safe copies. |
 | `domains` | `ds` | Count tabs by root domain, or by full hostname with `-s`. |
 | `links` | `l` | Print full URLs, one per line. |
 | `windows` | `w` | List window IDs, active profiles, and layouts. |
@@ -87,15 +88,15 @@ dia help mv                     # Show batch move usage and flags
 
 Use `dia help <command>` or `dia <command> -h` for command help. `-h` and `--help` before `--` show help, even when a positional argument is missing. A flag that takes a value consumes that value literally, so `-p --help` selects a profile named `--help`. To pass a literal positional argument named `-h` or `--help`, put it after `--`, as in `dia find -- -h`. JavaScript and quoted text that contain those strings stay literal.
 
-Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, domains, and move-domain.
+Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, domains, dedupe, and move-domain.
 
-Use `--profile NAME` or `-p NAME` to select a source profile by its exact, case-sensitive name. A requested profile that does not exist is an error. Queries skip other profiles before reading their tabs. Batch moves still inspect profile membership to detect tabs that already belong to the target.
+Use `--profile NAME` or `-p NAME` to select a source profile by its exact, case-sensitive name. A requested profile that does not exist is an error. Queries skip other profiles before reading their tabs. Batch moves and dedupe still inspect all profile memberships to detect tabs that already belong to the target.
 
 Use `--domain DOMAIN` or `-D DOMAIN` repeatedly to match HTTP(S) hosts. A plain domain matches the host and every subdomain level. Add `--exact-domain` or `-E` to match plain domains exactly, regardless of flag order. `*.example.com` matches subdomains but excludes `example.com`, even with `-E`. Domain matching ignores the URL path and port and folds host case. Domain arguments are DNS names, not URLs, paths, ports, or arbitrary globs.
 
 Use `--keyword TEXT` or `-k TEXT` repeatedly to match text anywhere in a full URL. Keywords are case-insensitive literal text, not title searches, globs, or regular expressions. A keyword can match the host, path, or query. For example, `-k youtube` also matches `https://example.com/?next=youtube`.
 
-Domains and keywords form one union. Profile, state, and `find` filters intersect with that union. These filters are available on `tabs`, `find`, `count`, `links`, `domains`, `move-domain`, and `profiles -c`. Domain and keyword filters on `profiles` require `-c`. `-E` requires at least one domain and has no effect on keywords.
+Domains and keywords form one union. Profile, state, and `find` filters intersect with that union. These filters are available on `tabs`, `find`, `count`, `links`, `domains`, `dedupe`, `move-domain`, and `profiles -c`. Domain and keyword filters on `profiles` require `-c`. `-E` requires at least one domain and has no effect on keywords.
 
 ### Domain counts
 
@@ -110,6 +111,24 @@ dia ds -k youtube
 ```
 
 Output has `DOMAIN` and `COUNT` columns, sorted by count descending and then domain alphabetically. Each distinct window and tab pair counts once, even if several tabs have the same URL. Hostnames ignore case, ports, and a trailing dot. IP addresses and `localhost` stay separate. Empty, invalid, and hostless URLs group under `(no domain)`, so totals match `dia count` with the same filters. Domain counts do not replace saved rows. Redirected output is TSV.
+
+## Duplicate tabs
+
+`dia dedupe` or `dia dd` previews duplicate tabs. Nothing closes until you add `-a` or `--apply`. `-n` or `--dry-run` explicitly requests the default preview and cannot be combined with `-a`.
+
+```bash
+dia dd                         # Preview all Profiles
+dia dd -p Work -D github.com -n  # Preview with existing filters
+dia dd -p Work -k youtube -a    # Close safe duplicates from this selection
+```
+
+Only valid, nonempty HTTP(S) URLs that are exactly equal belong to a duplicate group. Query parameters, fragments, URL case, and trailing slashes remain significant. Groups stay within one window and one Profile instance. Profiles with identical names do not merge. The usual Profile, window, domain, keyword, pinned, and loading filters apply before grouping.
+
+Keep one protected, nonloading copy when available, otherwise the first copy in browser order. Every pinned tab, window-active tab, and tab shared across Profiles is protected, including memberships outside `-p`. Additional protected copies remain open. If any copy in the group is loading, skip the entire group. Shared duplicate copies count once per physical window and tab pair.
+
+The preview lists `KEEP`, `CLOSE`, and `SKIP` with Profile, URL, and reason. Terminal output hides window and tab IDs. Redirected output is TSV and retains both IDs for auditing. Counts report duplicate groups, extra copies, closed, skipped, failed, and remaining. `duplicates = closed + skipped + remaining`; failed copies are included in remaining. Preview reports how many tabs would close and confirms no changes were made.
+
+All groups pass preflight before the first close. Before each close, the backend checks the candidate and keeper IDs and URLs, full Profile membership, pinned and active protection, and whether any still-live group member is loading. A state change or browser error stops the batch immediately, reports exact partial counts and the original reason, and exits nonzero without retrying. Completed closes remain closed. Separate Apple Events cannot provide an atomic transaction, so inspect the preview and avoid editing the selected tabs during an apply. A later rerun recomputes from current browser state. Dedupe uses one JXA process and never writes URLs or replaces the saved-row cache.
 
 ## Batch moving
 
@@ -141,7 +160,7 @@ Simple actions use one success line with the requested row number and target pro
 
 The renderer reads the terminal's actual width, falling back to `COLUMNS` and then 80. Frames are included in the title-width budget, while full URLs remain visible. Chinese characters and combining marks are measured for terminal alignment; complex emoji widths can vary by terminal. Control characters from browser titles and URLs are flattened.
 
-Each successful visible `tabs` or `find` replaces a row cache for that terminal and parent shell. The cache stores only window and tab IDs in a mode `0600` temporary file, written atomically; its key includes the parent shell's terminal, process ID, and start time. Empty visible results clear it. Failed listings, pipes, redirected output, `TERM=dumb`, `links`, `current`, and `domains` do not replace it. Row actions resolve those saved IDs directly, including tabs hidden in inactive profiles, even when action input and output are redirected. Refresh the list after closing or moving tabs or restarting Dia. Row numbers are local to the terminal and shell that listed them.
+Each successful visible `tabs` or `find` replaces a row cache for that terminal and parent shell. The cache stores only window and tab IDs in a mode `0600` temporary file, written atomically; its key includes the parent shell's terminal, process ID, and start time. Empty visible results clear it. Failed listings, pipes, redirected output, `TERM=dumb`, `links`, `current`, `domains`, and `dedupe` do not replace it. Row actions resolve those saved IDs directly, including tabs hidden in inactive profiles, even when action input and output are redirected. Refresh the list after closing or moving tabs or restarting Dia. Row numbers are local to the terminal and shell that listed them.
 
 `navigate` accepts only absolute HTTP(S) URLs. `exec` runs one quoted JavaScript argument in a tab using the logged-in Dia session. Dia may require its `--enable-applescript-javascript` startup flag for `exec`; this CLI does not change that browser setting.
 

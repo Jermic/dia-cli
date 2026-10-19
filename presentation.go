@@ -16,6 +16,12 @@ type presentation struct {
 }
 
 func (p *presentation) title() string {
+	if p.command.Name == "dedupe" {
+		if p.command.DryRun {
+			return "Dedupe preview"
+		}
+		return "Dedupe tabs"
+	}
 	if p.command.Name == "move-domain" {
 		if p.command.DryRun {
 			return "Move preview"
@@ -79,12 +85,19 @@ func (p *presentation) progress(event Progress) {
 		}
 		p.clear()
 		p.planned = true
-		fmt.Fprintf(p.errs, "◇  Found %s\n◇  Target ready\n", quantity(event.Total, "matching tab"))
+		if p.command.Name == "dedupe" {
+			fmt.Fprintf(p.errs, "◇  Found %s\n", quantity(event.Total, "duplicate tab"))
+		} else {
+			fmt.Fprintf(p.errs, "◇  Found %s\n◇  Target ready\n", quantity(event.Total, "matching tab"))
+		}
 		return
 	}
 	label := "Reading tabs"
 	if event.Phase == "moving" || event.Phase == "moved" {
 		label = fmt.Sprintf("Moving tabs · %d/%d", event.Completed, event.Total)
+	}
+	if event.Phase == "closing" || event.Phase == "closed" {
+		label = fmt.Sprintf("Closing duplicates · %d/%d", event.Completed, event.Total)
 	}
 	if label == p.lastActive {
 		return
@@ -127,6 +140,10 @@ func quantity(n int, noun string) string {
 
 func (p *presentation) finish(result Result) {
 	p.clear()
+	if result.Dedupe != nil {
+		p.finishDedupe(result)
+		return
+	}
 	if result.Move != nil {
 		p.finishMove(result)
 		return
@@ -244,4 +261,41 @@ func (p *presentation) finishMove(result Result) {
 		fmt.Fprintf(p.out, "◇  Skipped %s · already in %s\n", quantity(m.Skipped, "tab"), safeText(p.command.Target))
 	}
 	p.footer("Done")
+}
+
+func (p *presentation) finishDedupe(result Result) {
+	d := result.Dedupe
+	if p.mode.stdoutTTY && d.Groups == 0 && result.Error == "" {
+		p.footer("No duplicate tabs · no changes made")
+		return
+	}
+	counts := fmt.Sprintf("METRIC\tCOUNT\ngroups\t%d\nduplicates\t%d\nclosed\t%d\nskipped\t%d\nfailed\t%d\nremaining\t%d", d.Groups, d.Duplicates, d.Closed, d.Skipped, d.Failed, d.Remaining)
+	if result.Output != "" {
+		if p.mode.stdoutTTY {
+			p.body(renderTable(result.Output, []string{"WINDOW", "TAB"}))
+		} else {
+			fmt.Fprintln(p.out, result.Output)
+		}
+	}
+	if p.mode.stdoutTTY {
+		p.body(renderTable(counts, nil, 1))
+	} else {
+		fmt.Fprintln(p.out, counts)
+	}
+	summary := quantity(d.Closed, "tab") + " closed"
+	if p.command.DryRun {
+		summary = quantity(d.Remaining, "tab") + " would close · no changes made"
+	}
+	if result.Error != "" {
+		if p.mode.stderrTTY {
+			fmt.Fprint(p.errs, "✕  ")
+		}
+		fmt.Fprintln(p.errs, result.Error)
+		summary = "Incomplete · " + quantity(d.Closed, "tab") + " closed"
+	}
+	if p.mode.stdoutTTY {
+		p.footer(summary)
+	} else if p.mode.stderrTTY {
+		fmt.Fprintln(p.errs, "└  "+summary)
+	}
 }

@@ -12,6 +12,7 @@ if dia unknown >/dev/null 2>&1; then
 fi
 osascript -l JavaScript "$root/tests/behavior.js" "$root/scripts/dia.js"
 osascript -l JavaScript "$root/tests/batch.js" "$root/scripts/dia.js"
+osascript -l JavaScript "$root/tests/dedupe.js" "$root/scripts/dia.js"
 zsh "$root/tests/display.zsh"
 zsh "$root/tests/session.zsh"
 python3 "$root/tests/terminal.py"

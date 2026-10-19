@@ -1,6 +1,33 @@
 package main
 
 var commandHelp = map[string]string{
+	"dedupe": `USAGE
+  dia dedupe [flags]
+
+ALIASES
+  dd
+
+Preview duplicate HTTP(S) tabs by exact, nonempty full URL within each window and Profile. Default and -n never close tabs. Add -a to close only safe extra copies. This command does not replace saved rows.
+
+FLAGS
+  -a, --apply            Close safe duplicate copies
+  -n, --dry-run          Preview only (default); cannot combine with -a
+  -w, --window <id>      Select one window
+  -p, --profile <name>   Select an exact, case-sensitive source Profile
+  -D, --domain <domain>  Match HTTP(S) root and subdomains; repeat for a union
+  -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
+  --pinned, --loading    Require these tab states; protected copies never close
+
+Domains and keywords form a union. Other filters intersect. Quote '*.example.com' for subdomains only. URLs are compared literally, preserving query, fragment, case, and trailing slash. Distinct windows and Profile instances never merge. A tab shared across Profiles, pinned, or active in its window is protected. A loading copy protects its entire duplicate group. Keep a protected nonloading copy when available, otherwise the first copy, plus every additional protected copy.
+
+Every group passes preflight before any close. Each close rechecks membership, URL, protected states, and the group's loading state. Changes or errors stop immediately without retrying. Partial results retain completed closes. Separate browser reads and writes are not atomic. Preview lists KEEP/CLOSE/SKIP decisions, and terminal output hides internal IDs. Piped TSV includes window and tab IDs. Failed copies remain included in remaining.
+
+EXAMPLES
+  dia dd
+  dia dd -p Work -D github.com -n
+  dia dd -p Work -k youtube -a`,
+
 	"domains": `USAGE
   dia domains [flags]
 

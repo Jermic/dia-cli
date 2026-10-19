@@ -81,6 +81,121 @@ function progress(c, phase, window, profile, completed, total) {
     $.NSFileHandle.fileHandleWithStandardOutput.writeData(data);
 }
 
+function dedupe(c, windows) {
+    var result = {output: ''};
+    var tally = {groups: 0, duplicates: 0, closed: 0, skipped: 0, failed: 0, remaining: 0};
+    var groups = [], plans = [], rows = [], counted = Object.create(null), selected = 0;
+    windows.forEach(function (w, wi) {
+        var wid = String(w.id()), profiles = w.profiles(), membership = Object.create(null), snapshots = [];
+        progress(c, 'scan', wid, '', wi, windows.length);
+        profiles.forEach(function (p, pi) {
+            var name = String(p.name()), key = JSON.stringify([p.index(), name]);
+            var chosen = !c.profile || c.profile === name;
+            progress(c, 'profile', wid, name, pi, profiles.length);
+            var snapshot = readTabs(p, chosen ? ['url', 'ispinned', 'loading'] : []);
+            snapshots.push({profile: p, name: name, key: key, snapshot: snapshot, chosen: chosen});
+            snapshot.id.forEach(function (id) {
+                id = String(id);
+                if (!membership[id]) membership[id] = [];
+                membership[id].push(key);
+            });
+        });
+        var active = snapshots.some(function (entry) { return entry.snapshot.id.length > 0; }) ? String(w.activeTab().id()) : '';
+        snapshots.forEach(function (entry) {
+            if (!entry.chosen) return;
+            selected++;
+            var byURL = Object.create(null), snapshot = entry.snapshot;
+            snapshot.id.forEach(function (id, i) {
+                var url = String(snapshot.url[i] == null ? '' : snapshot.url[i]);
+                if (!webHost(url) || !urlMatch(url, c.domains, c.keywords) || c.pinned && !snapshot.ispinned[i] || c.loading && !snapshot.loading[i]) return;
+                if (!byURL[url]) byURL[url] = [];
+                if (byURL[url].some(function (tab) { return tab.id === String(id); })) return;
+                var reason = membership[String(id)].length > 1 ? 'shared across Profiles' : snapshot.ispinned[i] ? 'pinned' : String(id) === active ? 'active tab' : '';
+                byURL[url].push({id: String(id), url: url, membership: membership[String(id)], reason: reason, loading: !!snapshot.loading[i]});
+            });
+            Object.keys(byURL).forEach(function (url) {
+                var members = byURL[url];
+                if (members.length < 2) return;
+                var loading = members.some(function (tab) { return tab.loading; });
+                var keeper = members.filter(function (tab) { return tab.reason && !tab.loading; })[0] || members[0];
+                var group = {window: w, wid: wid, profile: entry.profile, name: entry.name, key: entry.key, members: members, keeper: keeper};
+                groups.push(group);
+                tally.groups++;
+                members.forEach(function (tab) {
+                    var action = tab === keeper ? 'KEEP' : loading || tab.reason ? 'SKIP' : 'CLOSE';
+                    var reason = loading ? 'group contains a loading tab' : tab.reason || (tab === keeper ? 'first copy' : 'duplicate URL');
+                    rows.push([action, wid, tab.id, entry.name, url, reason]);
+                    if (tab === keeper) return;
+                    var physical = JSON.stringify([wid, tab.id]);
+                    if (counted[physical]) return;
+                    counted[physical] = true;
+                    tally.duplicates++;
+                    if (action === 'SKIP') tally.skipped++;
+                    else { tab.close = true; plans.push({group: group, tab: tab}); }
+                });
+            });
+        });
+        progress(c, 'scan', wid, '', wi + 1, windows.length);
+    });
+    if (c.profile && !selected) throw Error('No matching source profile name: ' + cell(c.profile));
+    tally.remaining = tally.duplicates - tally.skipped;
+    var closed = Object.create(null);
+    function validate(group, candidate) {
+        var profiles = group.window.profiles(), current = Object.create(null), source, state = Object.create(null);
+        profiles.forEach(function (p) {
+            var key = JSON.stringify([p.index(), String(p.name())]);
+            var snapshot = readTabs(p, key === group.key ? ['url', 'ispinned', 'loading'] : []);
+            if (key === group.key) source = p;
+            snapshot.id.forEach(function (id, i) {
+                id = String(id);
+                if (!current[id]) current[id] = [];
+                current[id].push(key);
+                if (key === group.key) state[id] = {url: String(snapshot.url[i]), pinned: snapshot.ispinned[i], loading: snapshot.loading[i]};
+            });
+        });
+        if (!source) throw Error('Profile changed since scan. Please retry.');
+        var active = String(group.window.activeTab().id());
+        group.members.forEach(function (member) {
+            if (closed[JSON.stringify([group.wid, member.id])]) return;
+            if (!current[member.id] || JSON.stringify(current[member.id]) !== JSON.stringify(member.membership)) throw Error('Tab membership changed since scan. Please retry.');
+            var tab = state[member.id];
+            if (!tab || tab.url !== member.url) throw Error('Tab URL or ID changed since scan. Please retry.');
+            if (tab.loading) throw Error('Duplicate group is loading. Please retry.');
+            if (member.close && (!candidate || member === candidate) && (current[member.id].length !== 1 || tab.pinned || active === member.id)) throw Error('Tab became protected since scan. Please retry.');
+        });
+        if (candidate) return source.tabs.byId(candidate.id);
+    }
+    progress(c, 'plan', '', '', tally.duplicates, tally.duplicates);
+    var currentPlan;
+    try {
+        groups.forEach(function (group) { if (group.members.some(function (member) { return member.close; })) validate(group); });
+    } catch (error) {
+        tally.failed = 1;
+        result.error = 'Dedupe stopped before closing tabs: ' + cell(error);
+    }
+    if (!result.error && !c.dryRun) {
+        for (var i = 0; i < plans.length; i++) {
+            currentPlan = plans[i];
+            progress(c, 'closing', '', currentPlan.group.name, tally.closed, plans.length);
+            try {
+                validate(currentPlan.group, currentPlan.tab).close();
+            } catch (error) {
+                tally.failed = 1;
+                result.error = 'Dedupe stopped in Profile ' + cell(currentPlan.group.name) + ': ' + cell(error);
+                break;
+            }
+            closed[JSON.stringify([currentPlan.group.wid, currentPlan.tab.id])] = true;
+            tally.closed++;
+            tally.remaining--;
+            progress(c, 'closed', '', currentPlan.group.name, tally.closed, plans.length);
+        }
+    }
+    if (c.dryRun) result.output = table(['ACTION', 'WINDOW', 'TAB', 'PROFILE', 'URL', 'REASON'], rows);
+    result.dedupe = tally;
+    progress(c, result.error ? 'failure' : 'done', '', '', tally.closed, plans.length);
+    return result;
+}
+
 function run(argv) {
     if (argv.length !== 1) throw Error('Expected one JSON command.');
     var c = JSON.parse(argv[0]);
@@ -116,6 +231,7 @@ function run(argv) {
         windows = windows.filter(function (w) { return String(w.id()) === c.window; });
         if (!windows.length) throw Error('Window not found: ' + cell(c.window));
     }
+    if (c.name === 'dedupe') return JSON.stringify(dedupe(c, windows));
     if (c.name === 'windows') {
         result.output = table(['WINDOW', 'PROFILE', 'LAYOUT'], windows.map(function (w) { return [w.id(), w.activeProfile().name(), w.tabLayout()]; }));
         return JSON.stringify(result);
