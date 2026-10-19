@@ -168,7 +168,7 @@ func TestWindowsAndPreviewUseTextColumns(t *testing.T) {
 		want   string
 	}{
 		{[]string{"windows"}, Result{Output: "WINDOW\tPROFILE\tLAYOUT\nw1\tA\tsidebar\nw2\tLong\ttabStrip"}, "w1      A        sidebar\n"},
-		{[]string{"mv", "example.com", "Work", "-n"}, Result{Output: "ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tP\tWork\thttps://example.com", Move: &MoveResult{Matched: 1, Remaining: 1}}, "MOVE    w1      a    P       Work    https://example.com\n"},
+		{[]string{"mv", "example.com", "Work", "-n"}, Result{Output: "ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tP\tWork\thttps://example.com", Move: &MoveResult{Matched: 1, Remaining: 1}}, "MOVE    a    P       Work    https://example.com\n"},
 	} {
 		var out, errs bytes.Buffer
 		status := run(tc.args, &out, &errs, func(Command, func(Progress)) (Result, error) { return tc.result, nil }, nil, outputMode{stdoutTTY: true})
@@ -211,7 +211,7 @@ func TestCompletionRequiresSuccessfulFinalMoveResult(t *testing.T) {
 				}
 				var out, errs bytes.Buffer
 				status := run(args, &out, &errs, backend, nil, outputMode{stderrTTY: true})
-				if status != tc.wantStatus || !strings.Contains(errs.String(), "Scanning windows") {
+				if status != tc.wantStatus || !strings.Contains(errs.String(), "Scanning tabs") {
 					t.Fatalf("status=%d stdout=%q stderr=%q", status, out.String(), errs.String())
 				}
 				complete := strings.Contains(errs.String(), "Move complete") || strings.Contains(errs.String(), "Preview complete")
@@ -222,6 +222,15 @@ func TestCompletionRequiresSuccessfulFinalMoveResult(t *testing.T) {
 					t.Fatalf("wrong completion: %q", errs.String())
 				}
 			})
+		}
+	}
+}
+
+func TestProgressHidesWindowContext(t *testing.T) {
+	for _, phase := range []string{"scan", "profile", "preflight", "plan", "moving", "moved", "failure", "done"} {
+		shown := renderProgress(Progress{Phase: phase, Window: "private-window-id", Profile: "Work", Completed: 1, Total: 2}, false)
+		if strings.Contains(shown, "window") || !strings.Contains(shown, "Work") || !strings.Contains(shown, "1/2") {
+			t.Fatalf("%s: %q", phase, shown)
 		}
 	}
 }
