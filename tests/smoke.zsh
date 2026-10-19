@@ -5,7 +5,7 @@ set -eu
 root="${0:A:h:h}"
 zsh -n "$root/dia-cli.plugin.zsh"
 source "$root/dia-cli.plugin.zsh"
-[[ "$(dia help)" == *'Usage: dia'* ]]
+[[ "$(dia help)" == *'dia <command>'* ]]
 if dia unknown >/dev/null 2>&1; then
   print -u2 'Unknown commands must fail'
   exit 1
