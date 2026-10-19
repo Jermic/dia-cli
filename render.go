@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,7 +47,7 @@ func link(url, text string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
-func renderProfiles(tsv string) string {
+func renderTable(tsv string, numericCols ...int) string {
 	if tsv == "" {
 		return ""
 	}
@@ -67,11 +69,11 @@ func renderProfiles(tsv string) string {
 			if j > 0 {
 				b.WriteString("  ")
 			}
-			if j == 1 || j == 3 {
+			if slices.Contains(numericCols, j) {
 				b.WriteString(strings.Repeat(" ", widths[j]-width(value)))
 			}
 			b.WriteString(value)
-			if j < len(row)-1 && j != 1 && j != 3 {
+			if j < len(row)-1 && !slices.Contains(numericCols, j) {
 				b.WriteString(strings.Repeat(" ", widths[j]-width(value)))
 			}
 		}
@@ -134,4 +136,43 @@ func terminalColumns(file *os.File) int {
 	}
 	columns, _ := strconv.Atoi(os.Getenv("COLUMNS"))
 	return columns
+}
+
+func safeText(text string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+			return ' '
+		}
+		return r
+	}, text)
+}
+
+func displayDomains(domains []DomainPattern) string {
+	values := make([]string, len(domains))
+	for i, domain := range domains {
+		values[i] = domain.Host
+		if domain.Subdomains {
+			values[i] = "*." + values[i]
+		} else if domain.Exact {
+			values[i] += " (exact)"
+		}
+	}
+	return strings.Join(values, ", ")
+}
+
+func renderProgress(p Progress, preview bool) string {
+	label := map[string]string{"scan": "Scanning windows", "profile": "Reading profile", "preflight": "Checking target", "plan": "Plan ready", "moving": "Moving tabs", "moved": "Moved tabs", "failure": "Move stopped", "done": "Move complete"}[p.Phase]
+	if p.Phase == "done" && preview {
+		label = "Preview complete"
+	}
+	if p.Window != "" {
+		label += " · window " + safeText(p.Window)
+	}
+	if p.Profile != "" {
+		label += " · " + safeText(p.Profile)
+	}
+	if p.Total > 0 {
+		label += fmt.Sprintf(" · %d/%d", p.Completed, p.Total)
+	}
+	return label
 }

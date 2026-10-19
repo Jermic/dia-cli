@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ var version = "dev"
 type DomainPattern struct {
 	Host       string `json:"host"`
 	Subdomains bool   `json:"subdomains"`
+	Exact      bool   `json:"exact,omitempty"`
 }
 
 type TabRef struct {
@@ -31,18 +33,32 @@ type TabRef struct {
 }
 
 type Command struct {
-	Name    string          `json:"name"`
-	Args    []string        `json:"args,omitempty"`
-	Window  string          `json:"window,omitempty"`
-	Profile string          `json:"profile,omitempty"`
-	Domains []DomainPattern `json:"domains,omitempty"`
-	Target  string          `json:"target,omitempty"`
-	Detail  bool            `json:"detail,omitempty"`
-	Sort    string          `json:"sort,omitempty"`
-	Pinned  bool            `json:"pinned,omitempty"`
-	Loading bool            `json:"loading,omitempty"`
-	DryRun  bool            `json:"dryRun,omitempty"`
-	Counts  bool            `json:"counts,omitempty"`
+	Name     string          `json:"name"`
+	Args     []string        `json:"args,omitempty"`
+	Window   string          `json:"window,omitempty"`
+	Profile  string          `json:"profile,omitempty"`
+	Domains  []DomainPattern `json:"domains,omitempty"`
+	Target   string          `json:"target,omitempty"`
+	Detail   bool            `json:"detail,omitempty"`
+	Sort     string          `json:"sort,omitempty"`
+	Pinned   bool            `json:"pinned,omitempty"`
+	Loading  bool            `json:"loading,omitempty"`
+	DryRun   bool            `json:"dryRun,omitempty"`
+	Counts   bool            `json:"counts,omitempty"`
+	Progress bool            `json:"progress,omitempty"`
+}
+
+type Progress struct {
+	Phase     string `json:"phase"`
+	Window    string `json:"window,omitempty"`
+	Profile   string `json:"profile,omitempty"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+}
+
+type outputMode struct {
+	stdoutTTY bool
+	stderrTTY bool
 }
 
 type MoveResult struct {
@@ -91,8 +107,9 @@ WINDOW AND PROFILE COMMANDS
 
 FILTERS AND FLAGS
   --profile, -p <name>    Select a source profile (case-sensitive)
-  --domain, -D <domain>   Select HTTP(S) host; repeatable
+  --domain, -D <domain>   Match HTTP(S) root + subdomains; repeatable
                          Use *.example.com for subdomains only
+  --exact-domain, -E      Match plain domains exactly (requires a domain)
   --window, -w <id>       Select one window
   --dry-run, -n           Plan move-domain without moving
   --counts, -c            Show profile membership counts
@@ -103,12 +120,13 @@ FILTERS AND FLAGS
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
 Move-domain never creates profiles or moves between windows.
+Move progress goes to terminal stderr. Piped stdout keeps machine-readable output.
 
 EXAMPLES
   dia help <command>
   dia <command> --help
-  dia l -p Github -D github.com -D '*.github.com'
-  dia mv github.com Work -D '*.github.com' -n`
+  dia l -p Github -D github.com
+  dia mv github.com Work -n`
 
 var aliases = map[string]string{
 	"t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
@@ -159,6 +177,7 @@ func webURL(raw string) bool {
 
 func parse(argv []string) (Command, error) {
 	c := Command{Name: "help", Sort: "title"}
+	exactDomain := false
 	if len(argv) == 0 {
 		return c, nil
 	}
@@ -209,7 +228,7 @@ func parse(argv []string) (Command, error) {
 	}
 	if name == "move-domain" && len(argv) > 2 {
 		switch argv[2] {
-		case "-p", "--profile", "-w", "--window", "-D", "--domain", "--pinned", "--loading", "-n", "--dry-run":
+		case "-p", "--profile", "-w", "--window", "-D", "--domain", "--pinned", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
 			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
 		}
 	}
@@ -251,6 +270,11 @@ func parse(argv []string) (Command, error) {
 				}
 				c.Domains = append(c.Domains, p)
 			}
+		case "--exact-domain", "-E":
+			if !(isFiltered(name) || name == "profiles") {
+				return c, errors.New("--exact-domain is not valid here")
+			}
+			exactDomain = true
 		case "--pinned":
 			if !isFiltered(name) {
 				return c, errors.New("--pinned is not valid here")
@@ -324,6 +348,14 @@ func parse(argv []string) (Command, error) {
 		c.Domains = append([]DomainPattern{p}, c.Domains...)
 		c.Target = c.Args[1]
 	}
+	if exactDomain {
+		if len(c.Domains) == 0 {
+			return c, errors.New("--exact-domain requires a domain")
+		}
+		for i := range c.Domains {
+			c.Domains[i].Exact = !c.Domains[i].Subdomains
+		}
+	}
 	return c, nil
 }
 
@@ -335,7 +367,7 @@ func isRow(name string) bool {
 	return name == "open" || name == "close" || name == "move" || name == "navigate" || name == "exec"
 }
 
-func backend(c Command) (Result, error) {
+func backend(c Command, onProgress func(Progress)) (Result, error) {
 	source, err := scripts.ReadFile("scripts/dia.js")
 	if err != nil {
 		return Result{}, err
@@ -345,21 +377,112 @@ func backend(c Command) (Result, error) {
 		return Result{}, err
 	}
 	cmd := exec.Command("osascript", "-l", "JavaScript", "-e", string(source), string(request))
-	output, err := cmd.CombinedOutput()
+	var diagnostics bytes.Buffer
+	cmd.Stderr = &diagnostics
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		if strings.TrimSpace(string(output)) == "" {
-			return Result{}, err
-		}
-		return Result{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		return Result{}, err
 	}
+	if err := cmd.Start(); err != nil {
+		return Result{}, err
+	}
+	decoder := json.NewDecoder(stdout)
 	var result Result
-	if err := json.Unmarshal(output, &result); err != nil {
-		return Result{}, fmt.Errorf("invalid Dia response: %w", err)
+	final := false
+	var protocolErr error
+	for {
+		var frame map[string]json.RawMessage
+		err := decoder.Decode(&frame)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			protocolErr = err
+			break
+		}
+		if final {
+			protocolErr = errors.New("frame after final result")
+			break
+		}
+		if raw, ok := frame["progress"]; ok {
+			var event Progress
+			if len(frame) != 1 || !c.Progress {
+				protocolErr = errors.New("unexpected progress frame")
+				break
+			}
+			eventDecoder := json.NewDecoder(bytes.NewReader(raw))
+			eventDecoder.DisallowUnknownFields()
+			if err := eventDecoder.Decode(&event); err != nil {
+				protocolErr = err
+				break
+			}
+			if err := event.validate(); err != nil {
+				protocolErr = err
+				break
+			}
+			if onProgress != nil {
+				onProgress(event)
+			}
+		} else {
+			if _, ok := frame["output"]; !ok {
+				protocolErr = errors.New("missing result output")
+				break
+			}
+			raw, _ := json.Marshal(frame)
+			if err := json.Unmarshal(raw, &result); err != nil {
+				protocolErr = err
+				break
+			}
+			final = true
+		}
+	}
+	if protocolErr != nil {
+		// A malformed stream may leave the child blocked on stdout.
+		_ = cmd.Process.Kill()
+	}
+	waitErr := cmd.Wait()
+	if protocolErr != nil {
+		return Result{}, fmt.Errorf("invalid Dia response: %w%s", protocolErr, diagnosticSuffix(diagnostics.String()))
+	}
+	if waitErr != nil {
+		return Result{}, fmt.Errorf("%w%s", waitErr, diagnosticSuffix(diagnostics.String()))
+	}
+	if !final {
+		return Result{}, errors.New("invalid Dia response: missing final result")
+	}
+	if c.Name == "move-domain" && result.Move == nil {
+		return Result{}, errors.New("invalid Dia response: missing move result")
 	}
 	return result, nil
 }
 
-func run(argv []string, out, errs io.Writer, invoke func(Command) (Result, error), cache *rowCache, interactive bool) int {
+func diagnosticSuffix(text string) string {
+	if text = strings.TrimSpace(text); text != "" {
+		return ": " + text
+	}
+	return ""
+}
+
+func (p Progress) validate() error {
+	switch p.Phase {
+	case "scan", "profile", "preflight", "plan", "moving", "moved", "failure", "done":
+	default:
+		return errors.New("unknown progress phase")
+	}
+	if p.Completed < 0 || p.Total < 0 || p.Completed > p.Total {
+		return errors.New("invalid progress counts")
+	}
+	for _, value := range []string{p.Window, p.Profile} {
+		for _, r := range value {
+			if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+				return errors.New("invalid progress context")
+			}
+		}
+	}
+	return nil
+}
+
+func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)) (Result, error), cache *rowCache, mode outputMode) int {
 	c, err := parse(argv)
 	if err != nil {
 		fmt.Fprintln(errs, err)
@@ -381,7 +504,7 @@ func run(argv []string, out, errs io.Writer, invoke func(Command) (Result, error
 		fmt.Fprintln(errs, "dia-cli requires macOS.")
 		return 1
 	}
-	if cache == nil && (isRow(c.Name) || interactive && (c.Name == "tabs" || c.Name == "find")) {
+	if cache == nil && (isRow(c.Name) || mode.stdoutTTY && (c.Name == "tabs" || c.Name == "find")) {
 		cache = newRowCache()
 	}
 	if isRow(c.Name) {
@@ -393,30 +516,62 @@ func run(argv []string, out, errs io.Writer, invoke func(Command) (Result, error
 		c.Name = "_" + c.Name
 		c.Args = append([]string{ref.Window, ref.Tab}, c.Args[1:]...)
 	}
-	result, err := invoke(c)
+	var onProgress func(Progress)
+	if c.Name == "move-domain" && mode.stderrTTY {
+		c.Progress = true
+		onProgress = func(p Progress) {
+			if p.Phase != "done" {
+				fmt.Fprintln(errs, renderProgress(p, c.DryRun))
+			}
+		}
+	}
+	result, err := invoke(c, onProgress)
 	if err != nil {
 		fmt.Fprintln(errs, err)
 		return 1
 	}
-	if (c.Name == "tabs" || c.Name == "find") && interactive && result.Error == "" {
+	if (c.Name == "tabs" || c.Name == "find") && mode.stdoutTTY && result.Error == "" {
 		if err := cache.save(result.Tabs); err != nil {
 			fmt.Fprintln(errs, err)
 			return 1
 		}
 	}
 	if result.Move != nil {
-		if result.Output != "" {
-			fmt.Fprintln(out, result.Output)
+		if c.Progress && result.Error == "" {
+			completed, total := result.Move.Moved, result.Move.Matched-result.Move.Skipped
+			if c.DryRun {
+				completed, total = result.Move.Matched, result.Move.Matched
+			}
+			fmt.Fprintln(errs, renderProgress(Progress{Phase: "done", Profile: c.Target, Completed: completed, Total: total}, c.DryRun))
 		}
-		prefix := ""
-		if c.DryRun {
-			prefix = "dry-run "
+		if mode.stdoutTTY {
+			if c.DryRun {
+				fmt.Fprintln(out, "Preview (no tabs moved)")
+			}
+			fmt.Fprintf(out, "Domains: %s → %s\n", displayDomains(c.Domains), safeText(c.Target))
+			if result.Move.Matched == 0 {
+				fmt.Fprintln(out, "No matching tabs.")
+			} else if result.Output != "" {
+				fmt.Fprint(out, renderTable(result.Output))
+			}
+			m := result.Move
+			fmt.Fprint(out, renderTable(fmt.Sprintf("METRIC\tCOUNT\nmatched\t%d\nmoved\t%d\nskipped\t%d\nfailed\t%d\nremaining\t%d", m.Matched, m.Moved, m.Skipped, m.Failed, m.Remaining), 1))
+		} else {
+			if result.Output != "" {
+				fmt.Fprintln(out, result.Output)
+			}
+			prefix := ""
+			if c.DryRun {
+				prefix = "dry-run "
+			}
+			fmt.Fprintf(out, "%smatched=%d moved=%d skipped=%d failed=%d remaining=%d\n", prefix, result.Move.Matched, result.Move.Moved, result.Move.Skipped, result.Move.Failed, result.Move.Remaining)
 		}
-		fmt.Fprintf(out, "%smatched=%d moved=%d skipped=%d failed=%d remaining=%d\n", prefix, result.Move.Matched, result.Move.Moved, result.Move.Skipped, result.Move.Failed, result.Move.Remaining)
-	} else if interactive && (c.Name == "tabs" || c.Name == "find" || c.Name == "current") {
+	} else if mode.stdoutTTY && (c.Name == "tabs" || c.Name == "find" || c.Name == "current") {
 		fmt.Fprint(out, renderTabs(result.Output, c.Detail || c.Name == "find" || c.Name == "current"))
-	} else if interactive && c.Name == "profiles" {
-		fmt.Fprint(out, renderProfiles(result.Output))
+	} else if mode.stdoutTTY && c.Name == "profiles" {
+		fmt.Fprint(out, renderTable(result.Output, 1, 3))
+	} else if mode.stdoutTTY && c.Name == "windows" {
+		fmt.Fprint(out, renderTable(result.Output))
 	} else if result.Output != "" {
 		fmt.Fprintln(out, result.Output)
 	}
@@ -428,6 +583,7 @@ func run(argv []string, out, errs io.Writer, invoke func(Command) (Result, error
 }
 
 func main() {
-	interactive := isTerminal(os.Stdout) && os.Getenv("TERM") != "dumb"
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, backend, nil, interactive))
+	terminal := os.Getenv("TERM") != "dumb"
+	mode := outputMode{stdoutTTY: terminal && isTerminal(os.Stdout), stderrTTY: terminal && isTerminal(os.Stderr)}
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, backend, nil, mode))
 }

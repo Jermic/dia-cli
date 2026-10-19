@@ -20,11 +20,11 @@ If you previously used the Oh My Zsh plugin, remove only `dia-cli` from the exis
 
 ### Install a release archive manually
 
-Download the archive for your Mac from the [latest GitHub Release](https://github.com/Jermic/dia-cli/releases/latest): `darwin_arm64` for Apple Silicon or `darwin_amd64` for Intel. Download `checksums.txt` from the same release, then verify and install the selected archive. For example, after downloading version 0.1.0 for Apple Silicon:
+Download the archive for your Mac from the [latest GitHub Release](https://github.com/Jermic/dia-cli/releases/latest): `darwin_arm64` for Apple Silicon or `darwin_amd64` for Intel. Download `checksums.txt` from the same release, then verify and install the selected archive. For example, after downloading version 0.2.0 for Apple Silicon:
 
 ```zsh
-grep '  dia-cli_0.1.0_darwin_arm64.tar.gz$' checksums.txt | shasum -a 256 -c - &&
-tar -xzf dia-cli_0.1.0_darwin_arm64.tar.gz &&
+grep '  dia-cli_0.2.0_darwin_arm64.tar.gz$' checksums.txt | shasum -a 256 -c - &&
+tar -xzf dia-cli_0.2.0_darwin_arm64.tar.gz &&
 mkdir -p "$HOME/.local/bin" &&
 install -m 0755 dia "$HOME/.local/bin/dia"
 ```
@@ -77,18 +77,21 @@ The tab and window commands have short forms: `t` tabs, `f` find, `n` count, `l`
 
 Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, and move-domain.
 
-Use `--profile NAME` or `-p NAME` to select a source profile by exact, case-sensitive name. Use `--domain DOMAIN` or `-D DOMAIN` repeatedly for a union of HTTP(S) host matches. A plain domain matches only that host; `*.example.com` matches one or more subdomain levels, excluding `example.com` itself. Domain matching ignores URL path and port and folds host case. Other filters intersect with the domain union. Domain arguments are DNS names, not URLs, paths, ports, or arbitrary globs. `profiles` accepts `-p`, `-w`, and `-D` with `-c`; domain filtering requires `-c`. A requested source profile that does not exist is an error.
+Use `--profile NAME` or `-p NAME` to select a source profile by exact, case-sensitive name. Use `--domain DOMAIN` or `-D DOMAIN` repeatedly for a union of HTTP(S) host matches. A plain domain matches that host and all subdomain levels. Add `--exact-domain` or `-E` to match plain domains exactly. The flag applies to all plain domains, regardless of flag order. `*.example.com` matches one or more subdomain levels, excluding `example.com` itself, even with `-E`. Domain matching ignores URL path and port and folds host case. Other filters intersect with the domain union. Domain arguments are DNS names, not URLs, paths, ports, or arbitrary globs. `profiles` accepts `-p`, `-w`, and `-D` with `-c`; domain filtering requires `-c`. `-E` requires a domain and is available on tabs, find, count, links, move-domain, and profiles with counts. A requested source profile that does not exist is an error.
 
 ## Batch moving
 
 ```zsh
 dia move-domain example.com "Work" --profile Personal --dry-run
-dia mv example.com "Work" -D '*.example.com' -p Personal -w <window-id>
+dia mv example.com "Work" -p Personal -w <window-id>
+dia mv example.com "Work" -E -n   # Preview only the exact host
 ```
 
 `move-domain` combines its first domain with every `-D`, then gathers matching tabs once across the selected windows and profiles. It validates that each involved window contains exactly one target profile before moving anything. It skips a tab already in that window's target profile, even when the tab also belongs to another profile. It never creates profiles or moves tabs between windows.
 
-`--dry-run` or `-n` performs the same read and preflight with zero moves. It lists each matching tab's window, ID, source profile, target profile, URL, and `MOVE` or `SKIP` decision; an empty plan says `No matching tabs.` Both modes report `matched`, `moved`, `skipped`, `failed`, and `remaining`. A move failure identifies the window, tab, target, and original error, then stops the batch, reports partial progress, and exits nonzero. Completed moves stay completed; run the command again to retry remaining tabs.
+`--dry-run` or `-n` performs the same read and preflight with zero moves. It lists each matching tab's window, ID, source profile, target profile, URL, and `MOVE` or `SKIP` decision; an empty plan says `No matching tabs.` Both modes report `matched`, `moved`, `skipped`, `failed`, and `remaining`. Terminal output aligns plans and lists these metrics vertically. An empty terminal result includes the domains and target. Windows and profiles use the same aligned table style. Piped output retains TSV plans and one-line `key=value` counts. A move failure identifies the window, tab, target, and original error, then stops the batch, reports partial progress, and exits nonzero. Completed moves stay completed. Inspect the result before running the command again to retry remaining tabs.
+
+Move progress streams to stderr when stderr is a terminal, including when stdout is redirected. It reports actual profile scans, target checks, and successful moves. Scans and checks can alternate between windows. All checks complete before the first move. Dry-run reports scan and preview progress without move events. Redirected stderr omits progress. Links remain one URL per line, and count remains one integer. A backend or protocol failure exits nonzero without a fabricated summary or automatic retry.
 
 ## Output and saved rows
 

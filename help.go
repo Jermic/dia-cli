@@ -34,16 +34,17 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
   -d, -detail             Show full URLs beside titles
   -s, -st                 Sort by title
   -sl                     Sort by URL; requires -d
 
-Other filters intersect with the domain union. Quote '*.example.com' to match subdomains only; it excludes example.com.
+Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLES
   dia tabs -d -sl
-  dia tabs -p Github -D github.com -D '*.github.com'`,
+  dia tabs -p Github -D github.com`,
 	"find": `USAGE
   dia find <text> [flags]
 
@@ -56,9 +57,10 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Quote '*.example.com' to match subdomains only; it excludes example.com.
+Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia find github -p Work`,
@@ -87,9 +89,10 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Quote '*.example.com' to match subdomains only; it excludes example.com.
+Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia count -D example.com`,
@@ -105,12 +108,13 @@ FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Match an HTTP(S) host; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
 
-Other filters intersect with the domain union. Quote '*.example.com' to match subdomains only; it excludes example.com.
+Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
-  dia l -p Github -D github.com -D '*.github.com'`,
+  dia l -p Github -D github.com`,
 	"open": `USAGE
   dia open <row>
 
@@ -162,17 +166,20 @@ ALIASES
 
 Move tabs matching the first domain or any repeated -D domain into the target profile. The target must already exist in each involved window. Tabs stay in their windows.
 
+All windows pass preflight before any move. Terminal stderr shows live scan, preflight, and move progress. Terminal stdout shows aligned plans and vertical counts. Piped stdout keeps TSV plans and key=value counts. Dry-run shows scan and preview progress without moving tabs.
+
 FLAGS
   -w, --window <id>       Select one window
   -p, --profile <name>    Select an exact, case-sensitive source profile
   -D, --domain <domain>   Add an HTTP(S) host to the domain union
+  -E, --exact-domain     Match plain domains exactly; requires a domain
   --pinned, --loading     Require these tab states
   -n, --dry-run           Preview decisions and counts; move no tabs
 
-Other filters intersect with the domain union. Quote '*.example.com' to match subdomains only; it excludes example.com.
+Other filters intersect with the domain union. Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
-  dia mv github.com Work -D '*.github.com' -p Personal -n`,
+  dia mv github.com Work -p Personal -n`,
 	"navigate": `USAGE
   dia navigate <row> <url>
 
@@ -219,8 +226,9 @@ FLAGS
   -p, --profile <name>    Select an exact, case-sensitive profile
   -c, --counts            Show profile membership counts
   -D, --domain <domain>   Limit counts to an HTTP(S) host; requires -c; repeat for a union
+  -E, --exact-domain     Match plain domains exactly; requires -D and -c
 
-Quote '*.example.com' to match subdomains only; it excludes example.com.
+Plain example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
   dia profiles -c -D example.com`,

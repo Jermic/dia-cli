@@ -30,10 +30,10 @@ func TestCommandHelpRoutes(t *testing.T) {
 		var reference string
 		for _, args := range [][]string{{"help", name}, {name, "-h"}, {name, "--help"}} {
 			var out, stderr bytes.Buffer
-			status := run(args, &out, &stderr, func(Command) (Result, error) {
+			status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 				t.Fatalf("%q invoked Dia", args)
 				return Result{}, nil
-			}, nil, true)
+			}, nil, outputMode{stdoutTTY: true})
 			if status != 0 || stderr.Len() != 0 || !strings.Contains(out.String(), "USAGE\n  "+usage+"\n") || !strings.Contains(out.String(), "-h, --help") {
 				t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 			}
@@ -46,10 +46,10 @@ func TestCommandHelpRoutes(t *testing.T) {
 	for alias, canonical := range aliases {
 		for _, args := range [][]string{{"help", alias}, {alias, "-h"}, {alias, "--help"}} {
 			var out, stderr bytes.Buffer
-			status := run(args, &out, &stderr, func(Command) (Result, error) {
+			status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 				t.Fatalf("%q invoked Dia", args)
 				return Result{}, nil
-			}, nil, true)
+			}, nil, outputMode{stdoutTTY: true})
 			if status != 0 || stderr.Len() != 0 || !strings.Contains(out.String(), "USAGE\n  "+want[canonical]+"\n") {
 				t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 			}
@@ -66,20 +66,20 @@ func TestCommandHelpRoutes(t *testing.T) {
 func TestHelpRootAndInvalidTargets(t *testing.T) {
 	for _, args := range [][]string{nil, {"-h"}, {"--help"}, {"help"}, {"h"}} {
 		var out, stderr bytes.Buffer
-		status := run(args, &out, &stderr, func(Command) (Result, error) {
+		status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 			t.Fatalf("%q invoked Dia", args)
 			return Result{}, nil
-		}, nil, true)
-		if status != 0 || stderr.Len() != 0 || out.String() != help+"\n" || !strings.Contains(out.String(), "dia l -p Github -D github.com -D '*.github.com'") || !strings.Contains(out.String(), "dia mv github.com Work") {
+		}, nil, outputMode{stdoutTTY: true})
+		if status != 0 || stderr.Len() != 0 || out.String() != help+"\n" || !strings.Contains(out.String(), "dia l -p Github -D github.com") || !strings.Contains(out.String(), "dia mv github.com Work") {
 			t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 		}
 	}
 	for _, args := range [][]string{{"help", "unknown"}, {"help", "tabs", "extra"}, {"h", "mv", "extra"}, {"tabs", "-h", "extra"}} {
 		var out, stderr bytes.Buffer
-		status := run(args, &out, &stderr, func(Command) (Result, error) {
+		status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 			t.Fatalf("%q invoked Dia", args)
 			return Result{}, nil
-		}, nil, true)
+		}, nil, outputMode{stdoutTTY: true})
 		if status != 2 || out.Len() != 0 || stderr.Len() == 0 {
 			t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 		}
