@@ -96,6 +96,31 @@ func TestParseDomainsAndAliases(t *testing.T) {
 	}
 }
 
+func TestMoveDomainMissingTargetDiagnostic(t *testing.T) {
+	for _, args := range [][]string{
+		{"mv", "skills.sh", "-p", "GitHub"},
+		{"move-domain", "skills.sh", "--profile", "Personal"},
+		{"md", "skills.sh", "-D", "*.skills.sh"},
+		{"mv", "skills.sh"},
+		{"mv", "skills.sh", "-p"},
+	} {
+		var out, stderr bytes.Buffer
+		status := run(args, &out, &stderr, func(Command) (Result, error) {
+			t.Fatal("incomplete move invoked Dia")
+			return Result{}, nil
+		}, nil, false)
+		if status != 2 || !strings.Contains(stderr.String(), "dia mv skills.sh GitHub") || !strings.Contains(stderr.String(), "-p") || !strings.Contains(stderr.String(), "source profile") {
+			t.Errorf("%q: status=%d stderr=%q", args, status, stderr.String())
+		}
+	}
+	for _, args := range [][]string{{"exec", "1", "-h"}, {"move-domain", "example.com", "-h"}} {
+		c, err := parse(args)
+		if err != nil || len(c.Args) != 2 || c.Args[1] != "-h" {
+			t.Errorf("positional -h changed for %q: %+v %v", args, c, err)
+		}
+	}
+}
+
 func TestHelpIsLocal(t *testing.T) {
 	c, err := parse([]string{"help"})
 	if err != nil || c.Name != "help" || !strings.Contains(help, "dia <command>") {

@@ -39,7 +39,7 @@ func ensureAbsent(path string) error {
 	return nil
 }
 
-func writeArchive(path string, binary, license []byte) (string, error) {
+func writeArchive(path string, binary, license, completion []byte) (string, error) {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		return "", err
@@ -52,7 +52,7 @@ func writeArchive(path string, binary, license []byte) (string, error) {
 		name string
 		mode int64
 		data []byte
-	}{{"dia", 0755, binary}, {"LICENSE", 0644, license}} {
+	}{{"dia", 0755, binary}, {"LICENSE", 0644, license}, {"_dia", 0644, completion}} {
 		h := &tar.Header{Name: entry.name, Mode: entry.mode, Size: int64(len(entry.data)), ModTime: time.Unix(0, 0), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}
 		if err := tw.WriteHeader(h); err != nil {
 			f.Close()
@@ -102,11 +102,13 @@ func formula(version string, artifacts []artifact) string {
   def install
     bin.install "dia"
     prefix.install "LICENSE"
+    zsh_completion.install "_dia"
   end
 
   test do
     assert_match "dia #{version}", shell_output("#{bin}/dia --version")
     assert_match "dia <command>", shell_output("#{bin}/dia help")
+    assert_path_exists zsh_completion/"_dia"
   end
 end
 `, strings.TrimPrefix(version, "v"), version, artifacts[0].name, artifacts[0].sha256, version, artifacts[1].name, artifacts[1].sha256)
@@ -145,6 +147,10 @@ func release(version string) error {
 	if err != nil {
 		return err
 	}
+	completion, err := os.ReadFile("completions/_dia")
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dist, 0755); err != nil {
 		return err
 	}
@@ -169,7 +175,7 @@ func release(version string) error {
 		if err != nil {
 			return err
 		}
-		a.sha256, err = writeArchive(filepath.Join(tmp, a.name), data, license)
+		a.sha256, err = writeArchive(filepath.Join(tmp, a.name), data, license, completion)
 		if err != nil {
 			return err
 		}

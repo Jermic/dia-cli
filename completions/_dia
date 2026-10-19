@@ -1,0 +1,82 @@
+#compdef dia
+
+_dia_profiles() {
+  local window index profile output
+  local -a names
+  local -A seen
+  output=$(command dia profiles 2>/dev/null) || return
+  while IFS=$'\t' read -r window index profile; do
+    [[ $window == WINDOW || -z $profile || -n ${seen[$profile]-} ]] && continue
+    seen[$profile]=1
+    names+=("$profile")
+  done <<< "$output"
+  (( ${#names} )) && compadd -- "${names[@]}"
+}
+
+emulate -L zsh
+local cmd=${words[2]} arity=0 pending='' i
+local -a subcommands flags
+subcommands=(tabs t find f current c count n links l open o help h version --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
+if (( CURRENT == 2 )); then
+  compadd -- "${subcommands[@]}" --help -h
+  return
+fi
+case $cmd in
+  t) cmd=tabs ;; f) cmd=find ;; c) cmd=current ;; n) cmd=count ;; l) cmd=links ;;
+  o) cmd=open ;; h) cmd=help ;; fo) cmd=focus ;; cl) cmd=close ;;
+  m) cmd=move ;; mv|md) cmd=move-domain ;; nav) cmd=navigate ;;
+  e) cmd=exec ;; w) cmd=windows ;; ps) cmd=profiles ;; p) cmd=profile ;; la) cmd=layout ;;
+  --version) cmd=version ;;
+esac
+case $cmd in
+  help)
+    (( CURRENT == 3 )) && compadd -- "${subcommands[@]}" --help -h
+    return ;;
+  find|focus|profile|layout|open|close) arity=1 ;;
+  move|move-domain|navigate|exec) arity=2 ;;
+  tabs|current|count|links|version|windows|profiles) ;;
+  *) return ;;
+esac
+if (( CURRENT <= 2 + arity )); then
+  if (( CURRENT == 3 )) && [[ ${words[CURRENT]} == -* ]]; then
+    compadd -- -h --help
+    return
+  fi
+  case $cmd:$CURRENT in
+    profile:3|move:4|move-domain:4) _dia_profiles ;;
+    layout:3) compadd -- sidebar tabStrip ;;
+  esac
+  return
+fi
+if [[ $cmd == move-domain ]]; then
+  case ${words[4]} in
+    -p|--profile|-w|--window|-D|--domain|--pinned|--loading|-n|--dry-run) return ;;
+  esac
+fi
+for (( i = 3 + arity; i < CURRENT; i++ )); do
+  if [[ -n $pending ]]; then
+    pending=''
+    continue
+  fi
+  case ${words[i]} in
+    -p|--profile|-w|--window|-D|--domain) pending=${words[i]} ;;
+    -h|--help) return ;;
+  esac
+done
+case $pending in
+  -p|--profile)
+    case $cmd in tabs|find|count|links|move-domain|profiles) _dia_profiles ;; esac
+    return ;;
+  -w|--window|-D|--domain) return ;;
+esac
+flags=(-h --help)
+case $cmd in
+  tabs) flags+=(-w --window -p --profile -D --domain --pinned --loading -d -detail -s -st -sl) ;;
+  find|count|links|move-domain)
+    flags+=(-w --window -p --profile -D --domain --pinned --loading)
+    [[ $cmd == move-domain ]] && flags+=(-n --dry-run) ;;
+  profiles) flags+=(-w --window -p --profile -D --domain -c --counts) ;;
+  current|windows|focus|profile|layout) flags+=(-w --window) ;;
+esac
+compadd -- "${flags[@]}"
+

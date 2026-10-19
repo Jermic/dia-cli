@@ -12,6 +12,8 @@ dia --version
 dia help
 ```
 
+Homebrew installs Zsh completion for commands, aliases, valid flags, layouts, and Profile names. Open a new Zsh session after installation, or run `autoload -Uz compinit; compinit` in an existing session. Zsh must include Homebrew's `share/zsh/site-functions` directory in `fpath`. Completing a Profile name runs the read-only `dia profiles` command, so Dia must be running and macOS may ask for Automation permission. If Dia cannot be queried, completion offers no Profile names.
+
 Upgrade with `brew upgrade jermic/tap/dia-cli`. Uninstall with `brew uninstall dia-cli`. Dia does not launch automatically. macOS may ask permission for your terminal to control Dia under **System Settings → Privacy & Security → Automation**.
 
 If you previously used the Oh My Zsh plugin, remove only `dia-cli` from the existing `plugins=(...)` array in `~/.zshrc`, leaving its other entries in place. In an already open Zsh session, run `unfunction dia` if it loaded the old function, or open a new terminal. Check `command -v dia` and `dia --version` to confirm the Homebrew command is active. The old plugin directory can stay in place.
@@ -40,7 +42,7 @@ go build -o bin/dia .
 ./bin/dia help
 ```
 
-Use `bin/dia` directly, or copy the built binary into a directory on your `PATH`. The binary contains the JXA script. Rebuild after updating the repository.
+Use `bin/dia` directly, or copy the built binary into a directory on your `PATH`. The binary contains the JXA script. Rebuild after updating the repository. To use completion from this checkout, add its `completions` directory to `fpath` before `compinit` and put `bin/dia` on `PATH`. The completion queries the `dia` binary for Profile names.
 
 For Oh My Zsh, clone the repository into `${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/dia-cli`, build it there, add `dia-cli` to your existing `plugins=(...)` array, and reload Zsh. You can also source `dia-cli.plugin.zsh` directly. The plugin defines a `dia` function that forwards arguments to `bin/dia`; if the binary is missing it prints the build command. It does not change shell configuration automatically.
 

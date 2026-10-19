@@ -202,7 +202,16 @@ func parse(argv []string) (Command, error) {
 		return Command{Name: "help", Args: []string{name}}, nil
 	}
 	if len(argv)-1 < arity {
+		if name == "move-domain" && len(argv) > 1 {
+			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
+		}
 		return c, fmt.Errorf("usage: dia %s requires %d argument(s)", name, arity)
+	}
+	if name == "move-domain" && len(argv) > 2 {
+		switch argv[2] {
+		case "-p", "--profile", "-w", "--window", "-D", "--domain", "--pinned", "--loading", "-n", "--dry-run":
+			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
+		}
 	}
 	c.Args = append([]string(nil), argv[1:1+arity]...)
 	for _, value := range c.Args {

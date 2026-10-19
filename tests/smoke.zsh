@@ -15,4 +15,5 @@ osascript -l JavaScript "$root/tests/batch.js" "$root/scripts/dia.js"
 zsh "$root/tests/display.zsh"
 zsh "$root/tests/session.zsh"
 python3 "$root/tests/terminal.py"
+python3 "$root/tests/completion.py"
 print 'Smoke tests passed (no live browser changes).'
