@@ -291,7 +291,7 @@ function run(argv) {
         return JSON.stringify(result);
     }
 
-    var rows = [], matches = [], seen = Object.create(null), selected = 0, plans = [];
+    var rows = [], matches = [], seen = Object.create(null), selected = 0, plans = [], planGroups = [];
     var query = c.name === 'find' ? c.args[0].toLowerCase() : '';
     var urlFiltered = !!(c.domains && c.domains.length || c.keywords && c.keywords.length);
     windows.forEach(function (w, wi) {
@@ -347,6 +347,7 @@ function run(argv) {
             var urls = snapshot.url || [];
             var pinned = snapshot.ispinned || [];
             var loading = snapshot.loading || [];
+            var planGroup;
             ids.forEach(function (id, i) {
                 if (c.pinned && !pinned[i] || c.loading && !loading[i] || !urlMatch(urlsNeeded ? urls[i] : '', c.domains, c.keywords)) return;
                 var key = JSON.stringify([wid, id]);
@@ -357,7 +358,15 @@ function run(argv) {
                     if (String(id) === c.args[0]) matches.push(p.tabs.byId(id));
                 } else if (c.name === 'count') rows.push(id);
                 else if (c.name === 'domains') rows.push(String(urls[i] == null ? '' : urls[i]));
-                else if (c.name === 'move-domain') windowCandidates.push({window: wid, id: id, source: name, url: urls[i], tab: p.tabs.byId(id)});
+                else if (c.name === 'move-domain') {
+                    if (!planGroup) {
+                        planGroup = {profile: p, plans: []};
+                        planGroups.push(planGroup);
+                    }
+                    var plan = {window: wid, id: id, source: name, url: urls[i], tab: p.tabs.byId(id)};
+                    planGroup.plans.push(plan);
+                    windowCandidates.push(plan);
+                }
                 else if (listing) rows.push([wid, name, id, titles[i], urls[i]]);
             });
         });
@@ -368,7 +377,9 @@ function run(argv) {
             if (!targets.length) throw Error('No matching profile name in window ' + cell(wid) + ': ' + cell(c.target));
             if (targets.length !== 1) throw Error('Ambiguous profile name in window ' + cell(wid) + ': ' + cell(c.target));
             windowCandidates.forEach(function (entry) {
-                plans.push({window: entry.window, id: entry.id, source: entry.source, url: entry.url, tab: entry.tab, target: targets[0], skip: !!membership[String(entry.id)][c.target]});
+                entry.target = targets[0];
+                entry.skip = !!membership[String(entry.id)][c.target];
+                plans.push(entry);
             });
             progress(c, 'preflight', wid, c.target, 1, 1);
         }
@@ -381,7 +392,15 @@ function run(argv) {
         matches[0].focus();
         result.output = 'Focused ' + cell(c.args[0]);
     } else if (c.name === 'move-domain') {
-        plans.forEach(validatePlan);
+        planGroups.forEach(function (group) {
+            var snapshot = readTabs(group.profile, ['url'], group.plans.map(function (plan) { return plan.id; }));
+            var urls = Object.create(null);
+            snapshot.id.forEach(function (id, i) { urls[String(id)] = snapshot.url[i]; });
+            group.plans.forEach(function (plan) {
+                if (!Object.prototype.hasOwnProperty.call(urls, String(plan.id))) throw Error('Tab ID changed since scan. Please retry.');
+                if (String(urls[String(plan.id)]) !== String(plan.url)) throw Error('Tab URL changed since scan. Please retry.');
+            });
+        });
         var tally = {matched: plans.length, moved: 0, skipped: 0, failed: 0, remaining: 0};
         plans.forEach(function (plan) { if (plan.skip) tally.skipped++; });
         tally.remaining = tally.matched - tally.skipped;

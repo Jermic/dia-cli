@@ -3,9 +3,9 @@ ObjC.import('Foundation');
 function run(argv) {
     var source = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
     if (!source) throw Error('Cannot read CLI source');
-    var actions = [], events = [], transportFailure = false;
+    var actions = [], events = [], transportFailure = false, scalarReads = 0, vectorRead = false;
     function tab(id, title, url) {
-        return {id: function () { return id; }, title: function () { return title; }, url: function () { return url; },
+        return {id: function () { if (!vectorRead) scalarReads++; return id; }, title: function () { return title; }, url: function () { if (!vectorRead) scalarReads++; return url; },
             move: function (options) {
                 if (this.fail) throw Error('Simulated move failure');
                 actions.push(id + '>' + options.to.name());
@@ -14,9 +14,26 @@ function run(argv) {
     }
     function profile(name, items) {
         var p = {name: function () { return name; }, index: function () { return 1; }, items: items};
-        function tabs() { return items; }
-        ['id', 'title', 'url'].forEach(function (prop) { tabs[prop] = function () { return items.map(function (t) { return t[prop](); }); }; });
-        tabs.byId = function (id) { return items.filter(function (t) { return t.id() === id; })[0]; };
+        p.reads = 0;
+        function collection(ids) {
+            function tabs() { return items; }
+            ['id', 'title', 'url'].forEach(function (prop) { tabs[prop] = function () {
+                p.reads++;
+                if (p.onRead) p.onRead(prop, ids);
+                vectorRead = true;
+                try {
+                    return items.filter(function (t) { return !ids || ids.indexOf(String(t.id())) !== -1; }).map(function (t) { return t[prop](); });
+                } finally { vectorRead = false; }
+            }; });
+            tabs.byId = function (id) {
+                vectorRead = true;
+                try { return items.filter(function (t) { return t.id() === id; })[0]; }
+                finally { vectorRead = false; }
+            };
+            tabs.whose = function (query) { return collection(query._or.map(function (condition) { return String(condition.id); })); };
+            return tabs;
+        }
+        var tabs = collection();
         p.tabs = tabs;
         return p;
     }
@@ -198,5 +215,52 @@ function run(argv) {
     windows = [window('keyword-move', [profile('Personal', [keywordOnly, titleOnly]), profile('Work', [])])];
     var keywordMoved = call({name: 'move-domain', keywords: ['youtube'], target: 'Work'});
     assert(keywordMoved.move.moved === 1 && actions.join(',') === 'keyword>Work', 'keyword batch moves URL matches only');
+    actions = [];
+    var bulk = [], alreadyThere = [];
+    for (var i = 0; i < 75; i++) {
+        var item = tab('bulk-' + i, 'Bulk', 'https://example.com/' + i);
+        bulk.push(item);
+        if (i >= 7) alreadyThere.push(item);
+    }
+    var bulkSource = profile('Personal', bulk), bulkTarget = profile('Work', alreadyThere);
+    windows = [window('bulk', [bulkSource, bulkTarget])];
+    scalarReads = 0;
+    var bulkMove = call({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work'});
+    assert(bulkMove.move.matched === 75 && bulkMove.move.moved === 7 && bulkMove.move.skipped === 68, '75 matches move only seven and skip 68 existing memberships');
+    assert(actions.length === 7, 'skipped tabs never receive a move call');
+    assert(scalarReads <= 14, 'scalar candidate reads scale with actual moves, not skipped matches');
+    assert(bulkSource.reads <= 6, 'source preflight reads are grouped rather than per match');
+    actions = [];
+    function skippedChange(change, dryRun) {
+        var skip = tab('skip-change', 'Skip', 'https://example.com/');
+        var moving = tab('moving', 'Moving', 'https://example.com/');
+        var origin = profile('Personal', [moving, skip]);
+        var target = profile('Work', [skip]);
+        origin.onRead = function (prop, ids) { if (ids && prop === 'id') change(skip, origin); };
+        windows = [window('skip-change', [origin, target])];
+        error({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work', dryRun: dryRun}, change === changeURL ? 'URL changed' : 'ID changed');
+        assert(actions.length === 0, 'changed skipped candidate prevents every write, including preview');
+    }
+    function changeURL(t) { t.url = function () { return 'https://changed.test/'; }; }
+    function changeID(t) { t.id = function () { return 'replacement'; }; }
+    skippedChange(changeURL, false);
+    skippedChange(changeURL, true);
+    skippedChange(changeID, false);
+    var earlier = profile('Personal', [tab('early', 'Early', 'https://example.com/')]);
+    var later = profile('Personal', [tab('later', 'Later', 'https://example.com/')]);
+    later.onRead = function (prop, ids) { if (ids && prop === 'url') later.items[0].url = function () { return 'https://changed.test/'; }; };
+    windows = [window('earlier', [earlier, profile('Work', [])]), window('later', [later, profile('Work', [])])];
+    error({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work'}, 'URL changed');
+    assert(actions.length === 0, 'later window preflight failure prevents earlier window writes');
+    var sameNameA = profile('Personal', [tab('same-a', 'A', 'https://example.com/a')]);
+    var sameNameB = profile('Personal', [tab('same-b', 'B', 'https://example.com/b')]);
+    windows = [window('same-name', [sameNameA, sameNameB, profile('Work', [])])];
+    var sameNames = call({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work', dryRun: true});
+    assert(sameNames.move.remaining === 2 && actions.length === 0, 'distinct source references with same name are independently validated');
+    var reorder = profile('Personal', [tab('reorder-a', 'A', 'https://example.com/a'), tab('reorder-b', 'B', 'https://example.com/b')]);
+    reorder.onRead = function (prop, ids) { if (ids && prop === 'url') reorder.items.reverse(); };
+    windows = [window('targeted-reorder', [reorder, profile('Work', [])])];
+    error({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work'}, 'Tabs changed');
+    assert(actions.length === 0, 'targeted same-size reorder cannot pair wrong URL and ID');
     return assertions + ' batch assertions passed';
 }
