@@ -66,10 +66,12 @@ dia navigate 2 https://example.com
 dia exec 2 'document.title'
 dia layout sidebar              # Also accepts tabStrip
 dia --version                   # Local version; no Dia connection needed
-dia help
+dia help                        # Root help
+dia help tabs                   # Command-specific usage and flags
+dia mv --help                   # Help also works through aliases
 ```
 
-The tab and window commands have short forms: `t` tabs, `f` find, `n` count, `l` links, `c` current, `w` windows, `ps` profiles, `p` profile, `fo` focus, `o` open, `cl` close, `m` move, `nav` navigate, `e` exec, `la` layout, `h` help, and `md` move-domain. Short forms accept the same arguments and flags. `dia version` is equivalent to `dia --version`.
+The tab and window commands have short forms: `t` tabs, `f` find, `n` count, `l` links, `c` current, `w` windows, `ps` profiles, `p` profile, `fo` focus, `o` open, `cl` close, `m` move, `nav` navigate, `e` exec, `la` layout, `h` help, and `mv` move-domain. The older `md` alias still works. Short forms accept the same arguments and flags. Use `dia help <command>` or `dia <command> -h` to see that command's flags and examples. `dia version` is equivalent to `dia --version`.
 
 Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, and move-domain.
 
@@ -79,7 +81,7 @@ Use `--profile NAME` or `-p NAME` to select a source profile by exact, case-sens
 
 ```zsh
 dia move-domain example.com "Work" --profile Personal --dry-run
-dia md example.com "Work" -D '*.example.com' -p Personal -w <window-id>
+dia mv example.com "Work" -D '*.example.com' -p Personal -w <window-id>
 ```
 
 `move-domain` combines its first domain with every `-D`, then gathers matching tabs once across the selected windows and profiles. It validates that each involved window contains exactly one target profile before moving anything. It skips a tab already in that window's target profile, even when the tab also belongs to another profile. It never creates profiles or moves tabs between windows.

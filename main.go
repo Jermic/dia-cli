@@ -79,7 +79,7 @@ TAB COMMANDS
   focus, fo <tab-id>       Focus a tab by ID
   close, cl <row>         Close a saved row
   move, m <row> <profile> Move a saved row in its window
-  move-domain, md <domain> <target>  Move matching tabs in one batch
+  move-domain, mv <domain> <target>  Move matching tabs in one batch (md also works)
   navigate, nav <row> <url>  Navigate a saved row
   exec, e <row> <javascript> Run JavaScript in a saved row
 
@@ -102,11 +102,17 @@ FILTERS AND FLAGS
   --help, -h              Show help
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
-Move-domain never creates profiles or moves between windows.`
+Move-domain never creates profiles or moves between windows.
+
+EXAMPLES
+  dia help <command>
+  dia <command> --help
+  dia l -p Github -D github.com -D '*.github.com'
+  dia mv github.com Work -D '*.github.com' -n`
 
 var aliases = map[string]string{
 	"t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
-	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "md": "move-domain",
+	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "mv": "move-domain", "md": "move-domain",
 	"nav": "navigate", "la": "layout", "e": "exec",
 }
 
@@ -170,6 +176,31 @@ func parse(argv []string) (Command, error) {
 		return c, fmt.Errorf("unknown command: %s", name)
 	}
 	c.Name = name
+	if name == "help" {
+		if len(argv) > 2 {
+			return c, errors.New("usage: dia help [command] accepts at most one command")
+		}
+		if len(argv) == 2 {
+			target := argv[1]
+			if target == "-h" || target == "--help" {
+				target = "help"
+			}
+			if full := aliases[target]; full != "" {
+				target = full
+			}
+			if target == "--version" {
+				target = "version"
+			}
+			if _, ok := arities[target]; !ok {
+				return c, fmt.Errorf("unknown command: %s", argv[1])
+			}
+			c.Args = []string{target}
+		}
+		return c, nil
+	}
+	if len(argv) == 2 && (argv[1] == "-h" || argv[1] == "--help") {
+		return Command{Name: "help", Args: []string{name}}, nil
+	}
 	if len(argv)-1 < arity {
 		return c, fmt.Errorf("usage: dia %s requires %d argument(s)", name, arity)
 	}
@@ -249,7 +280,7 @@ func parse(argv []string) (Command, error) {
 			if len(args) != 0 {
 				return c, errors.New("--help accepts no extra arguments")
 			}
-			return Command{Name: "help"}, nil
+			return Command{Name: "help", Args: []string{name}}, nil
 		default:
 			return c, fmt.Errorf("unexpected argument: %s", flag)
 		}
@@ -326,7 +357,11 @@ func run(argv []string, out, errs io.Writer, invoke func(Command) (Result, error
 		return 2
 	}
 	if c.Name == "help" {
-		fmt.Fprintln(out, help)
+		if len(c.Args) == 0 {
+			fmt.Fprintln(out, help)
+		} else {
+			fmt.Fprintln(out, commandHelp[c.Args[0]]+"\n\nHELP\n  -h, --help              Show this command help")
+		}
 		return 0
 	}
 	if c.Name == "version" {
