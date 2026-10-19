@@ -29,8 +29,8 @@ func TestVersionValidation(t *testing.T) {
 
 func TestArchiveContentsAndMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "asset.tar.gz")
-	binary, license := []byte("binary fixture"), []byte("license fixture")
-	sum, err := writeArchive(path, binary, license)
+	binary, license, completion := []byte("binary fixture"), []byte("license fixture"), []byte("completion fixture")
+	sum, err := writeArchive(path, binary, license, completion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestArchiveContentsAndMetadata(t *testing.T) {
 		name string
 		mode int64
 		data string
-	}{{"dia", 0755, string(binary)}, {"LICENSE", 0644, string(license)}} {
+	}{{"dia", 0755, string(binary)}, {"LICENSE", 0644, string(license)}, {"_dia", 0644, string(completion)}} {
 		h, err := tr.Next()
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func TestArchiveContentsAndMetadata(t *testing.T) {
 		t.Fatalf("extra archive entry: %v", err)
 	}
 	second := filepath.Join(t.TempDir(), "asset.tar.gz")
-	if _, err := writeArchive(second, binary, license); err != nil {
+	if _, err := writeArchive(second, binary, license, completion); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := os.ReadFile(second)
@@ -93,7 +93,7 @@ func TestFormulaBindsEachArchitectureToItsChecksum(t *testing.T) {
 			t.Errorf("missing matching %s URL and checksum", a.arch)
 		}
 	}
-	if !strings.Contains(formula, `bin.install "dia"`) || !strings.Contains(formula, `prefix.install "LICENSE"`) || !strings.Contains(formula, `shell_output("#{bin}/dia --version")`) || !strings.Contains(formula, `shell_output("#{bin}/dia help")`) {
+	if !strings.Contains(formula, `bin.install "dia"`) || !strings.Contains(formula, `prefix.install "LICENSE"`) || !strings.Contains(formula, `zsh_completion.install "_dia"`) || !strings.Contains(formula, `assert_path_exists zsh_completion/"_dia"`) || !strings.Contains(formula, `shell_output("#{bin}/dia --version")`) || !strings.Contains(formula, `shell_output("#{bin}/dia help")`) {
 		t.Fatal("formula install or local test missing")
 	}
 }
