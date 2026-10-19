@@ -55,11 +55,28 @@ function run(argv) {
             return savedTarget;
         }}};
     };
-    var cli = new Function('Application', ObjC.unwrap(source) + '\nreturn run;')(function (name) {
+    var jsonCLI = new Function('Application', ObjC.unwrap(source) + '\nreturn run;')(function (name) {
         calls++;
         if (name !== 'Dia') throw Error('Unexpected application');
         return {running: function () { return running; }, windows: readWindows};
     });
+    function cli(args) {
+        var count = {tabs: 0, links: 0, count: 0, current: 0, find: 1, focus: 1, profiles: 0, profile: 1, windows: 0, layout: 1,
+            _open: 2, _close: 2, _move: 3, _navigate: 3, _exec: 3}[args[0]];
+        if (count == null) throw Error('Unknown command');
+        var c = {name: args[0], args: args.slice(1, count + 1), sort: 'title'};
+        for (var i = count + 1; i < args.length; i++) {
+            if (args[i] === '--window') c.window = args[++i];
+            else if (args[i] === '-d' || args[i] === '-detail') c.detail = true;
+            else if (args[i] === '-sl') c.sort = 'url';
+            else if (args[i] === '-s' || args[i] === '-st') c.sort = 'title';
+            else if (args[i] === '--pinned') c.pinned = true;
+            else if (args[i] === '--loading') c.loading = true;
+            else throw Error('Unexpected test option');
+        }
+        if (c.sort === 'url' && !c.detail) throw Error('Link sorting (-sl) requires -d');
+        return JSON.parse(jsonCLI([JSON.stringify(c)])).output;
+    }
     var assertions = 0;
     function assert(condition, label) {
         assertions++;
@@ -72,24 +89,6 @@ function run(argv) {
         assert(error.indexOf(message) !== -1, 'error: ' + args.join(' '));
         assert(focused.length === before, 'failed command must not focus');
     }
-    assert(cli(['help']).indexOf('dia <command>') !== -1, 'help');
-    fails(['bad'], 'Unknown command');
-    fails(['focus'], 'dia <command>');
-    fails(['find', ''], 'dia <command>');
-    fails(['tabs', 'extra'], 'dia <command>');
-    fails(['count', '--window'], 'dia <command>');
-    fails(['tabs', '-sl'], 'requires -d');
-    fails(['tabs', '-d', '--window'], 'dia <command>');
-    fails(['tabs', '-d', '--unknown'], 'dia <command>');
-    fails(['_navigate', 'w', 't', 'javascript:alert(1)'], 'absolute HTTP(S)');
-    fails(['_navigate', 'w', 't', 'https://'], 'absolute HTTP(S)');
-    fails(['_navigate', 'w', 't', 'https://example.com/a b'], 'absolute HTTP(S)');
-    fails(['_navigate', 'w', 't', 'https://example.com/\u001b'], 'absolute HTTP(S)');
-    fails(['_navigate', 'w', 't', 'https://example.com/%ZZ'], 'absolute HTTP(S)');
-    fails(['layout', 'grid'], 'sidebar or tabStrip');
-    fails(['_exec', 'w', 't', '   '], 'non-empty JavaScript');
-    fails(['_close', 'w', 't', '--window', 'w'], 'dia <command>');
-    assert(calls === 0, 'help and validation never access Dia');
     forbidListing = true;
     cli(['_open', 'saved-window', 'saved-tab']);
     assert(focused.pop() === 'saved-tab', 'cached open focuses IDs without enumerating windows or tabs');

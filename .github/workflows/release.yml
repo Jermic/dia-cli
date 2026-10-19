@@ -1,0 +1,55 @@
+name: Test and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - run: go test ./...
+      - run: go vet ./...
+      - run: mkdir -p bin && go build -o bin/dia .
+      - run: zsh tests/smoke.zsh
+      - run: |
+          test "$(bin/dia --version)" = 'dia dev'
+          bin/dia help | grep -F 'dia <command>'
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - run: go run ./cmd/release "$GITHUB_REF_NAME"
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/"$GITHUB_REF_NAME"/*.tar.gz \
+            dist/"$GITHUB_REF_NAME"/checksums.txt \
+            dist/"$GITHUB_REF_NAME"/dia-cli.rb \
+            --draft --verify-tag --generate-notes
+          gh release edit "$GITHUB_REF_NAME" --draft=false
