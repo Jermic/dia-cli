@@ -29,4 +29,7 @@ _DIA_CLI_SCRIPT="$root/tests/arguments.js"
 [[ "$(dia ps)" == '["profiles"]' ]]
 [[ "$(dia p 'Work Profile')" == '["profile","Work Profile"]' ]]
 [[ "$(dia h)" == '["help"]' ]]
+[[ "$(dia w --window w1)" == '["windows","--window","w1"]' ]]
+[[ "$(dia la sidebar)" == '["layout","sidebar"]' ]]
+[[ "$(dia t --pinned --loading -d)" == '["tabs","--pinned","--loading","-d"]' ]]
 print 'Smoke tests passed (no live browser changes).'

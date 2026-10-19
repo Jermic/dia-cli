@@ -80,7 +80,7 @@ _dia_cli_render_tabs() {
 
 dia() {
   emulate -L zsh
-  local -A short_commands=(t tabs n count l links c current f find o open fo focus ps profiles p profile h help)
+  local -A short_commands=(t tabs n count l links c current f find o open fo focus ps profiles p profile h help w windows cl close m move nav navigate la layout e exec)
   if (( $# )) && [[ -n "${short_commands[$1]:-}" ]]; then
     set -- "${short_commands[$1]}" "${@:2}"
   fi
@@ -88,9 +88,12 @@ dia() {
     print -u2 'dia-cli requires macOS.'
     return 1
   fi
-  if [[ "${1:-}" == open ]]; then
-    if (( $# != 2 )) || [[ ! "$2" =~ '^[1-9][0-9]*$' ]]; then
-      print -u2 'Usage: dia open <positive-row-number>'
+  if [[ "${1:-}" == (open|close|move|navigate|exec) ]]; then
+    local row_command="$1"
+    local -i expected=2
+    [[ "$row_command" == (move|navigate|exec) ]] && expected=3
+    if (( $# != expected )) || [[ ! "$2" =~ '^[1-9][0-9]*$' ]]; then
+      print -u2 "Usage: dia $row_command <positive-row-number>${${expected:#2}:+ <argument>}"
       return 2
     fi
     local count=${#_DIA_CLI_TAB_IDS}
@@ -103,8 +106,8 @@ dia() {
       print -u2 'Row is outside the saved list. Refresh with dia tabs or dia find.'
       return 1
     fi
-    command osascript -l JavaScript "$_DIA_CLI_SCRIPT" _open \
-      "${_DIA_CLI_WINDOW_IDS[$2]}" "${_DIA_CLI_TAB_IDS[$2]}"
+    command osascript -l JavaScript "$_DIA_CLI_SCRIPT" "_$row_command" \
+      "${_DIA_CLI_WINDOW_IDS[$2]}" "${_DIA_CLI_TAB_IDS[$2]}" "${@:3}"
     return $?
   fi
   local output
