@@ -149,10 +149,10 @@ func TestProgressUsesStderrIndependentlyOfStdout(t *testing.T) {
 			}
 			return Result{Move: &MoveResult{}}, nil
 		}, nil, mode)
-		if status != 0 || strings.Contains(out.String(), "Scanning") || strings.Contains(errs.String(), "Scanning") != mode.stderrTTY {
+		if status != 0 || strings.Contains(out.String(), "Scanning") || strings.Contains(errs.String(), "●  Reading tabs") != mode.stderrTTY {
 			t.Fatalf("mode=%+v out=%q err=%q", mode, out.String(), errs.String())
 		}
-		if mode.stdoutTTY && (!strings.Contains(out.String(), "Preview (no tabs moved)") || !strings.Contains(out.String(), "example.com → Work") || !strings.Contains(out.String(), "No matching tabs.")) {
+		if mode.stdoutTTY && (!strings.Contains(out.String(), "┌  Move preview") || !strings.Contains(out.String(), "example.com") || !strings.Contains(out.String(), "Target  Work") || !strings.Contains(out.String(), "No matching tabs · no changes made")) {
 			t.Fatal(out.String())
 		}
 		if !mode.stdoutTTY && out.String() != "dry-run matched=0 moved=0 skipped=0 failed=0 remaining=0\n" {
@@ -168,7 +168,7 @@ func TestWindowsAndPreviewUseTextColumns(t *testing.T) {
 		want   string
 	}{
 		{[]string{"windows"}, Result{Output: "WINDOW\tPROFILE\tLAYOUT\nw1\tA\tsidebar\nw2\tLong\ttabStrip"}, "w1      A        sidebar\n"},
-		{[]string{"mv", "example.com", "Work", "-n"}, Result{Output: "ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tP\tWork\thttps://example.com", Move: &MoveResult{Matched: 1, Remaining: 1}}, "MOVE    a    P       Work    https://example.com\n"},
+		{[]string{"mv", "example.com", "Work", "-n"}, Result{Output: "ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tP\tWork\thttps://example.com", Move: &MoveResult{Matched: 1, Remaining: 1}}, "MOVE    P       Work    https://example.com\n"},
 	} {
 		var out, errs bytes.Buffer
 		status := run(tc.args, &out, &errs, func(Command, func(Progress)) (Result, error) { return tc.result, nil }, nil, outputMode{stdoutTTY: true})
@@ -183,9 +183,12 @@ func TestProgressContextSanitizedWithoutRejectingProfile(t *testing.T) {
 	if err := event.validate(); err != nil {
 		t.Fatal(err)
 	}
-	shown := renderProgress(event, false)
-	if strings.ContainsAny(shown, "\u200d\u202e") || !strings.Contains(shown, "Team") {
-		t.Fatalf("unsafe or lost profile: %q", shown)
+	var out, errs bytes.Buffer
+	p := presentation{command: Command{Name: "move-domain", Target: event.Profile}, out: &out, errs: &errs, mode: outputMode{stdoutTTY: true, stderrTTY: true}}
+	p.start()
+	p.progress(event)
+	if strings.ContainsAny(out.String()+errs.String(), "\u200d\u202e") || !strings.Contains(out.String(), "Team") {
+		t.Fatalf("%q %q", out.String(), errs.String())
 	}
 }
 
@@ -211,10 +214,10 @@ func TestCompletionRequiresSuccessfulFinalMoveResult(t *testing.T) {
 				}
 				var out, errs bytes.Buffer
 				status := run(args, &out, &errs, backend, nil, outputMode{stderrTTY: true})
-				if status != tc.wantStatus || !strings.Contains(errs.String(), "Scanning tabs") {
+				if status != tc.wantStatus || !strings.Contains(errs.String(), "Reading tabs") {
 					t.Fatalf("status=%d stdout=%q stderr=%q", status, out.String(), errs.String())
 				}
-				complete := strings.Contains(errs.String(), "Move complete") || strings.Contains(errs.String(), "Preview complete")
+				complete := strings.Contains(errs.String(), "└  Done") || strings.Contains(errs.String(), "Preview complete")
 				if complete != (tc.wantStatus == 0) {
 					t.Fatalf("premature/missing completion: %q", errs.String())
 				}
@@ -227,10 +230,12 @@ func TestCompletionRequiresSuccessfulFinalMoveResult(t *testing.T) {
 }
 
 func TestProgressHidesWindowContext(t *testing.T) {
+	var out, errs bytes.Buffer
+	p := presentation{out: &out, errs: &errs, mode: outputMode{stderrTTY: true}}
 	for _, phase := range []string{"scan", "profile", "preflight", "plan", "moving", "moved", "failure", "done"} {
-		shown := renderProgress(Progress{Phase: phase, Window: "private-window-id", Profile: "Work", Completed: 1, Total: 2}, false)
-		if strings.Contains(shown, "window") || !strings.Contains(shown, "Work") || !strings.Contains(shown, "1/2") {
-			t.Fatalf("%s: %q", phase, shown)
-		}
+		p.progress(Progress{Phase: phase, Window: "private-window-id", Profile: "Work", Completed: 1, Total: 2})
+	}
+	if strings.Contains(errs.String(), "window") || strings.Contains(errs.String(), "Work") {
+		t.Fatal(errs.String())
 	}
 }
