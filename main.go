@@ -485,7 +485,7 @@ func (p Progress) validate() error {
 func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)) (Result, error), cache *rowCache, mode outputMode) int {
 	c, err := parse(argv)
 	if err != nil {
-		fmt.Fprintln(errs, err)
+		(&presentation{errs: errs, mode: mode}).fail(err.Error())
 		return 2
 	}
 	if c.Name == "help" {
@@ -501,82 +501,42 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 		return 0
 	}
 	if runtime.GOOS != "darwin" {
-		fmt.Fprintln(errs, "dia-cli requires macOS.")
+		(&presentation{errs: errs, mode: mode}).fail("dia-cli requires macOS.")
 		return 1
 	}
 	if cache == nil && (isRow(c.Name) || mode.stdoutTTY && (c.Name == "tabs" || c.Name == "find")) {
 		cache = newRowCache()
 	}
+	p := presentation{command: c, out: out, errs: errs, mode: mode}
 	if isRow(c.Name) {
 		ref, err := cache.lookup(c.Args[0])
 		if err != nil {
-			fmt.Fprintln(errs, err)
+			(&presentation{errs: errs, mode: mode}).fail(err.Error())
 			return 1
 		}
 		c.Name = "_" + c.Name
 		c.Args = append([]string{ref.Window, ref.Tab}, c.Args[1:]...)
 	}
+	p.start()
 	var onProgress func(Progress)
 	if c.Name == "move-domain" && mode.stderrTTY {
 		c.Progress = true
-		onProgress = func(p Progress) {
-			if p.Phase != "done" {
-				fmt.Fprintln(errs, renderProgress(p, c.DryRun))
-			}
-		}
+		onProgress = p.progress
 	}
 	result, err := invoke(c, onProgress)
+	p.clear()
 	if err != nil {
-		fmt.Fprintln(errs, err)
+		p.fail(err.Error())
 		return 1
 	}
 	if (c.Name == "tabs" || c.Name == "find") && mode.stdoutTTY && result.Error == "" {
 		if err := cache.save(result.Tabs); err != nil {
-			fmt.Fprintln(errs, err)
+			p.fail(err.Error())
 			return 1
 		}
 	}
-	if result.Move != nil {
-		if c.Progress && result.Error == "" {
-			completed, total := result.Move.Moved, result.Move.Matched-result.Move.Skipped
-			if c.DryRun {
-				completed, total = result.Move.Matched, result.Move.Matched
-			}
-			fmt.Fprintln(errs, renderProgress(Progress{Phase: "done", Profile: c.Target, Completed: completed, Total: total}, c.DryRun))
-		}
-		if mode.stdoutTTY {
-			if c.DryRun {
-				fmt.Fprintln(out, "Preview (no tabs moved)")
-			}
-			fmt.Fprintf(out, "Domains: %s → %s\n", displayDomains(c.Domains), safeText(c.Target))
-			if result.Move.Matched == 0 {
-				fmt.Fprintln(out, "No matching tabs.")
-			} else if result.Output != "" {
-				fmt.Fprint(out, renderTable(result.Output, true))
-			}
-			m := result.Move
-			fmt.Fprint(out, renderTable(fmt.Sprintf("METRIC\tCOUNT\nmatched\t%d\nmoved\t%d\nskipped\t%d\nfailed\t%d\nremaining\t%d", m.Matched, m.Moved, m.Skipped, m.Failed, m.Remaining), false, 1))
-		} else {
-			if result.Output != "" {
-				fmt.Fprintln(out, result.Output)
-			}
-			prefix := ""
-			if c.DryRun {
-				prefix = "dry-run "
-			}
-			fmt.Fprintf(out, "%smatched=%d moved=%d skipped=%d failed=%d remaining=%d\n", prefix, result.Move.Matched, result.Move.Moved, result.Move.Skipped, result.Move.Failed, result.Move.Remaining)
-		}
-	} else if mode.stdoutTTY && (c.Name == "tabs" || c.Name == "find" || c.Name == "current") {
-		fmt.Fprint(out, renderTabs(result.Output, c.Detail || c.Name == "find" || c.Name == "current"))
-	} else if mode.stdoutTTY && c.Name == "profiles" {
-		fmt.Fprint(out, renderTable(result.Output, true, 1, 3))
-	} else if mode.stdoutTTY && c.Name == "windows" {
-		fmt.Fprint(out, renderTable(result.Output, false))
-	} else if result.Output != "" {
-		fmt.Fprintln(out, result.Output)
-	}
+	p.finish(result)
 	if result.Error != "" {
-		fmt.Fprintln(errs, result.Error)
 		return 1
 	}
 	return 0

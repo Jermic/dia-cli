@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"slices"
 	"strconv"
@@ -47,15 +46,12 @@ func link(url, text string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
-func renderTable(tsv string, hideWindow bool, numericCols ...int) string {
+func renderTable(tsv string, hiddenHeaders []string, numericCols ...int) string {
 	if tsv == "" {
 		return ""
 	}
 	lines := strings.Split(tsv, "\n")
-	hidden := -1
-	if hideWindow {
-		hidden = slices.Index(strings.Split(lines[0], "\t"), "WINDOW")
-	}
+	header := strings.Split(lines[0], "\t")
 	rows := make([][]string, len(lines))
 	widths := []int{}
 	for i, line := range lines {
@@ -71,7 +67,7 @@ func renderTable(tsv string, hideWindow bool, numericCols ...int) string {
 	for _, row := range rows {
 		first := true
 		for j, value := range row {
-			if j == hidden {
+			if j < len(header) && slices.Contains(hiddenHeaders, header[j]) {
 				continue
 			}
 			if !first {
@@ -103,6 +99,7 @@ func renderTabs(tsv string, detail bool) string {
 	if columns < 16 {
 		columns = 16
 	}
+	columns -= 3
 	count := len(lines) - 1
 	numberWidth := len(strconv.Itoa(count))
 	titleWidth := columns - numberWidth - 3
@@ -167,18 +164,4 @@ func displayDomains(domains []DomainPattern) string {
 		}
 	}
 	return strings.Join(values, ", ")
-}
-
-func renderProgress(p Progress, preview bool) string {
-	label := map[string]string{"scan": "Scanning tabs", "profile": "Reading profile", "preflight": "Checking target", "plan": "Plan ready", "moving": "Moving tabs", "moved": "Moved tabs", "failure": "Move stopped", "done": "Move complete"}[p.Phase]
-	if p.Phase == "done" && preview {
-		label = "Preview complete"
-	}
-	if p.Profile != "" {
-		label += " · " + safeText(p.Profile)
-	}
-	if p.Total > 0 {
-		label += fmt.Sprintf(" · %d/%d", p.Completed, p.Total)
-	}
-	return label
 }

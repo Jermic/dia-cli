@@ -67,7 +67,16 @@ func TestRunProfilesAlignsTerminalAndPreservesPipedTSV(t *testing.T) {
 		status := run(tc.args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 			return Result{Output: tc.tsv}, nil
 		}, nil, outputMode{stdoutTTY: tc.interactive})
-		if status != 0 || out.String() != tc.want || stderr.Len() != 0 {
+		got := out.String()
+		if tc.interactive {
+			got = strings.ReplaceAll(got, "│  ", "")
+			start := strings.Index(got, "INDEX")
+			end := strings.Index(got, "│\n└")
+			if start >= 0 && end >= start {
+				got = got[start:end]
+			}
+		}
+		if status != 0 || got != tc.want || stderr.Len() != 0 {
 			t.Errorf("%q interactive=%v: status=%d output=%q stderr=%q, want %q", tc.args, tc.interactive, status, out.String(), stderr.String(), tc.want)
 		}
 	}
@@ -347,14 +356,13 @@ func TestGoRendererKeepsCurrentAndSafeLinks(t *testing.T) {
 	}
 }
 
-func TestMoveTerminalSummaryIsVertical(t *testing.T) {
+func TestMoveTerminalSuccessOmitsZeroMetrics(t *testing.T) {
 	var out, stderr bytes.Buffer
 	status := run([]string{"mv", "example.com", "Work"}, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 		return Result{Move: &MoveResult{Matched: 12, Moved: 10, Skipped: 2}}, nil
 	}, nil, outputMode{stdoutTTY: true})
-	want := "METRIC     COUNT\nmatched       12\nmoved         10\nskipped        2\nfailed         0\nremaining      0\n"
-	if status != 0 || !strings.Contains(out.String(), want) {
-		t.Fatalf("summary: %q %q", out.String(), stderr.String())
+	if status != 0 || !strings.Contains(out.String(), "◇  Moved 10 tabs") || !strings.Contains(out.String(), "Skipped 2 tabs · already in Work") || strings.Contains(out.String(), "METRIC") || !strings.Contains(out.String(), "└  Done") {
+		t.Fatalf("%q %q", out.String(), stderr.String())
 	}
 }
 
@@ -363,7 +371,7 @@ func TestTableHidesWindowByHeader(t *testing.T) {
 		{"INDEX\tWINDOW\tPROFILE\n1\tw1\tWINDOW", "INDEX  PROFILE\n    1  WINDOW\n"},
 		{"INDEX\tPROFILE\n1\tWINDOW", "INDEX  PROFILE\n    1  WINDOW\n"},
 	} {
-		if got := renderTable(tc.tsv, true, 0); got != tc.want {
+		if got := renderTable(tc.tsv, []string{"WINDOW"}, 0); got != tc.want {
 			t.Errorf("got %q, want %q", got, tc.want)
 		}
 	}
