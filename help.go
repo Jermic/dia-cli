@@ -16,7 +16,7 @@ EXAMPLES
   dia version
 
 ALIASES
-  --version
+  v, -v, --version
 
 Show the installed version without contacting Dia.
 

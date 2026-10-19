@@ -73,7 +73,7 @@ dia help tabs                   # Command-specific usage and flags
 dia mv --help                   # Help also works through aliases
 ```
 
-The tab and window commands have short forms: `t` tabs, `f` find, `n` count, `l` links, `c` current, `w` windows, `ps` profiles, `p` profile, `fo` focus, `o` open, `cl` close, `m` move, `nav` navigate, `e` exec, `la` layout, `h` help, and `mv` move-domain. The older `md` alias still works. Short forms accept the same arguments and flags. Use `dia help <command>` or `dia <command> -h` to see that command's flags and examples. `dia version` is equivalent to `dia --version`.
+The tab and window commands have short forms: `t` tabs, `f` find, `n` count, `l` links, `c` current, `w` windows, `ps` profiles, `p` profile, `fo` focus, `o` open, `cl` close, `m` move, `nav` navigate, `e` exec, `la` layout, `h` help, `v` version, and `mv` move-domain. The older `md` alias still works. Short forms accept the same arguments and flags. Use `dia help <command>` or `dia <command> -h` to see that command's flags and examples. `dia version`, `dia v`, `dia -v`, and `dia --version` are equivalent.
 
 Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, and move-domain.
 

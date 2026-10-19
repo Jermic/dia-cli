@@ -44,8 +44,11 @@ with tempfile.TemporaryDirectory() as tmp:
         return result.stdout.decode().rstrip('\0').split('\0') if result.stdout else []
 
     commands = complete('')
-    assert {'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', '--version'} <= set(commands)
+    assert {'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
     assert not trace.exists(), 'command completion queried Dia'
+    for version in ('version', 'v', '-v', '--version'):
+        assert complete(version, '') == ['-h', '--help']
+    assert not trace.exists(), 'version completion queried Dia'
     assert complete('mv', '') == [], 'domain slot offered fabricated candidates'
     assert complete('mv', '-') == ['-h', '--help'], 'command help missing before required arguments'
     assert not trace.exists(), 'domain completion queried Dia'

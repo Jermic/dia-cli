@@ -94,6 +94,9 @@ func TestHelpKeepsArgumentValues(t *testing.T) {
 		flag string
 	}{
 		{[]string{"exec", "1", "-h"}, "exec", "-h", ""},
+		{[]string{"exec", "1", "-v"}, "exec", "-v", ""},
+		{[]string{"move-domain", "example.com", "-v"}, "move-domain", "-v", ""},
+		{[]string{"tabs", "-p", "-v"}, "tabs", "", "-v"},
 		{[]string{"move", "1", "-h"}, "move", "-h", ""},
 		{[]string{"tabs", "-p", "-h"}, "tabs", "", "-h"},
 		{[]string{"tabs", "-w", "-h"}, "tabs", "", "-h"},
