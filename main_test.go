@@ -103,6 +103,19 @@ func TestHelpIsLocal(t *testing.T) {
 	}
 }
 
+func TestScopedHelpIsLocal(t *testing.T) {
+	for _, args := range [][]string{{"help", "tabs"}, {"h", "t"}, {"tabs", "-h"}, {"t", "--help"}, {"move-domain", "-h"}, {"mv", "-h"}, {"md", "--help"}, {"exec", "-h"}} {
+		var out, stderr bytes.Buffer
+		status := run(args, &out, &stderr, func(Command) (Result, error) {
+			t.Fatal("help invoked Dia")
+			return Result{}, nil
+		}, nil, false)
+		if status != 0 || !strings.Contains(out.String(), "USAGE") || stderr.Len() != 0 {
+			t.Errorf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
+		}
+	}
+}
+
 func TestVersionIsLocal(t *testing.T) {
 	for _, args := range [][]string{{"--version"}, {"version"}} {
 		var out, stderr bytes.Buffer
