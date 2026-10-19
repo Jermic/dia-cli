@@ -89,7 +89,7 @@ CORE COMMANDS
   links, l                Print full URLs, one per line
   open, o <row>           Focus a saved row
   help, h                 Show this help
-  version, --version      Show the installed version
+  version, v, -v, --version  Show the installed version
 
 TAB COMMANDS
   focus, fo <tab-id>       Focus a tab by ID
@@ -131,7 +131,7 @@ EXAMPLES
 var aliases = map[string]string{
 	"t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
 	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "mv": "move-domain", "md": "move-domain",
-	"nav": "navigate", "la": "layout", "e": "exec",
+	"nav": "navigate", "la": "layout", "e": "exec", "v": "version", "-v": "version",
 }
 
 var arities = map[string]int{

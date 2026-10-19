@@ -16,7 +16,7 @@ _dia_profiles() {
 emulate -L zsh
 local cmd=${words[2]} arity=0 pending='' i
 local -a subcommands flags
-subcommands=(tabs t find f current c count n links l open o help h version --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
+subcommands=(tabs t find f current c count n links l open o help h version v -v --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
 if (( CURRENT == 2 )); then
   compadd -- "${subcommands[@]}" --help -h
   return
@@ -26,7 +26,7 @@ case $cmd in
   o) cmd=open ;; h) cmd=help ;; fo) cmd=focus ;; cl) cmd=close ;;
   m) cmd=move ;; mv|md) cmd=move-domain ;; nav) cmd=navigate ;;
   e) cmd=exec ;; w) cmd=windows ;; ps) cmd=profiles ;; p) cmd=profile ;; la) cmd=layout ;;
-  --version) cmd=version ;;
+  v|-v|--version) cmd=version ;;
 esac
 case $cmd in
   help)

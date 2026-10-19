@@ -151,7 +151,7 @@ func TestScopedHelpIsLocal(t *testing.T) {
 }
 
 func TestVersionIsLocal(t *testing.T) {
-	for _, args := range [][]string{{"--version"}, {"version"}} {
+	for _, args := range [][]string{{"--version"}, {"version"}, {"-v"}, {"v"}} {
 		var out, stderr bytes.Buffer
 		status := run(args, &out, &stderr, func(Command, func(Progress)) (Result, error) {
 			t.Fatal("version invoked Dia")
@@ -161,7 +161,7 @@ func TestVersionIsLocal(t *testing.T) {
 			t.Fatalf("%q: status=%d output=%q stderr=%q", args, status, out.String(), stderr.String())
 		}
 	}
-	for _, args := range [][]string{{"version", "extra"}, {"--version", "extra"}} {
+	for _, args := range [][]string{{"version", "extra"}, {"--version", "extra"}, {"v", "extra"}, {"-v", "extra"}} {
 		if _, err := parse(args); err == nil {
 			t.Errorf("accepted %q", args)
 		}
