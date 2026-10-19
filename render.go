@@ -47,11 +47,15 @@ func link(url, text string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
-func renderTable(tsv string, numericCols ...int) string {
+func renderTable(tsv string, hideWindow bool, numericCols ...int) string {
 	if tsv == "" {
 		return ""
 	}
 	lines := strings.Split(tsv, "\n")
+	hidden := -1
+	if hideWindow {
+		hidden = slices.Index(strings.Split(lines[0], "\t"), "WINDOW")
+	}
 	rows := make([][]string, len(lines))
 	widths := []int{}
 	for i, line := range lines {
@@ -65,10 +69,15 @@ func renderTable(tsv string, numericCols ...int) string {
 	}
 	var b strings.Builder
 	for _, row := range rows {
+		first := true
 		for j, value := range row {
-			if j > 0 {
+			if j == hidden {
+				continue
+			}
+			if !first {
 				b.WriteString("  ")
 			}
+			first = false
 			if slices.Contains(numericCols, j) {
 				b.WriteString(strings.Repeat(" ", widths[j]-width(value)))
 			}
@@ -161,12 +170,9 @@ func displayDomains(domains []DomainPattern) string {
 }
 
 func renderProgress(p Progress, preview bool) string {
-	label := map[string]string{"scan": "Scanning windows", "profile": "Reading profile", "preflight": "Checking target", "plan": "Plan ready", "moving": "Moving tabs", "moved": "Moved tabs", "failure": "Move stopped", "done": "Move complete"}[p.Phase]
+	label := map[string]string{"scan": "Scanning tabs", "profile": "Reading profile", "preflight": "Checking target", "plan": "Plan ready", "moving": "Moving tabs", "moved": "Moved tabs", "failure": "Move stopped", "done": "Move complete"}[p.Phase]
 	if p.Phase == "done" && preview {
 		label = "Preview complete"
-	}
-	if p.Window != "" {
-		label += " · window " + safeText(p.Window)
 	}
 	if p.Profile != "" {
 		label += " · " + safeText(p.Profile)

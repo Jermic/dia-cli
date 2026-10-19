@@ -44,15 +44,15 @@ func TestRunFindAndCurrentShowURLs(t *testing.T) {
 
 func TestRunProfilesAlignsTerminalAndPreservesPipedTSV(t *testing.T) {
 	counts := "WINDOW\tINDEX\tPROFILE\tCOUNT\nw1\t1\tDay\t1\nw1\t2\tReadLater\t27\nw1\t12\t中文档\t785"
-	plain := "WINDOW  INDEX  PROFILE    COUNT\n" +
-		"w1          1  Day            1\n" +
-		"w1          2  ReadLater     27\n" +
-		"w1         12  中文档       785\n"
+	plain := "INDEX  PROFILE    COUNT\n" +
+		"    1  Day            1\n" +
+		"    2  ReadLater     27\n" +
+		"   12  中文档       785\n"
 	noCounts := "WINDOW\tINDEX\tPROFILE\nw1\t1\tDay\nw1\t2\tReadLater\nw1\t12\t中文档"
-	noCountsPlain := "WINDOW  INDEX  PROFILE\n" +
-		"w1          1  Day\n" +
-		"w1          2  ReadLater\n" +
-		"w1         12  中文档\n"
+	noCountsPlain := "INDEX  PROFILE\n" +
+		"    1  Day\n" +
+		"    2  ReadLater\n" +
+		"   12  中文档\n"
 	for _, tc := range []struct {
 		args        []string
 		tsv, want   string
@@ -355,5 +355,16 @@ func TestMoveTerminalSummaryIsVertical(t *testing.T) {
 	want := "METRIC     COUNT\nmatched       12\nmoved         10\nskipped        2\nfailed         0\nremaining      0\n"
 	if status != 0 || !strings.Contains(out.String(), want) {
 		t.Fatalf("summary: %q %q", out.String(), stderr.String())
+	}
+}
+
+func TestTableHidesWindowByHeader(t *testing.T) {
+	for _, tc := range []struct{ tsv, want string }{
+		{"INDEX\tWINDOW\tPROFILE\n1\tw1\tWINDOW", "INDEX  PROFILE\n    1  WINDOW\n"},
+		{"INDEX\tPROFILE\n1\tWINDOW", "INDEX  PROFILE\n    1  WINDOW\n"},
+	} {
+		if got := renderTable(tc.tsv, true, 0); got != tc.want {
+			t.Errorf("got %q, want %q", got, tc.want)
+		}
 	}
 }

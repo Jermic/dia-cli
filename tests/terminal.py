@@ -89,14 +89,27 @@ print(os.environ['DIA_TEST_RESULT'])
     shown, out, err = terminal_run(['windows'], windows, False, False)
     assert out == windows['output'] + '\n' and not err, (out, err)
 
+    profiles = {'output': 'WINDOW\tINDEX\tPROFILE\tCOUNT\nw1\t1\tDay\t2\nw2\t12\t中文档\t785'}
+    for args, result in ((['ps', '-c'], profiles),
+                         (['ps'], {'output': 'WINDOW\tINDEX\tPROFILE\nw1\t1\tDay\nw2\t12\t中文档'})):
+        shown, out, err = terminal_run(args, result)
+        assert shown.startswith('INDEX  PROFILE') and 'WINDOW' not in shown and 'w1' not in shown and 'w2' not in shown, shown
+        assert '    1  Day' in shown and '   12  中文档' in shown, shown
+        if args[-1] == '-c':
+            assert 'Day          2\n' in shown and '中文档     785\n' in shown, shown
+        shown, out, err = terminal_run(args, result, False, False)
+        assert out == result['output'] + '\n' and not shown and not err, (shown, out, err)
+
     preview = {'output': 'ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tPersonal\tWork\thttps://example.com',
                'move': {'matched': 2, 'moved': 0, 'skipped': 1, 'failed': 0, 'remaining': 1}}
     for stdout_tty, stderr_tty in ((True, True), (False, True), (True, False), (False, False)):
         shown, out, err = terminal_run(['mv', 'example.com', 'Work', '-n'], preview, stdout_tty, stderr_tty)
-        assert ('Scanning windows' in shown) == stderr_tty, (shown, out, err)
+        assert ('Scanning tabs' in shown) == stderr_tty, (shown, out, err)
+        assert 'window' not in shown and 'w1' not in shown and 'WINDOW' not in shown, shown
         assert not err and 'Scanning' not in out, (shown, out, err)
         if stdout_tty:
             assert 'Preview (no tabs moved)' in shown and 'METRIC     COUNT\nmatched        2\nmoved          0\n' in shown, shown
+            assert 'ACTION  TAB  SOURCE    TARGET  URL\n' in shown and 'MOVE    a    Personal  Work    https://example.com\n' in shown, shown
             assert 'remaining      1\n' in shown and '\t' not in shown, shown
         else:
             assert out == preview['output'] + '\ndry-run matched=2 moved=0 skipped=1 failed=0 remaining=1\n', out

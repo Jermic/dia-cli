@@ -552,10 +552,10 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 			if result.Move.Matched == 0 {
 				fmt.Fprintln(out, "No matching tabs.")
 			} else if result.Output != "" {
-				fmt.Fprint(out, renderTable(result.Output))
+				fmt.Fprint(out, renderTable(result.Output, true))
 			}
 			m := result.Move
-			fmt.Fprint(out, renderTable(fmt.Sprintf("METRIC\tCOUNT\nmatched\t%d\nmoved\t%d\nskipped\t%d\nfailed\t%d\nremaining\t%d", m.Matched, m.Moved, m.Skipped, m.Failed, m.Remaining), 1))
+			fmt.Fprint(out, renderTable(fmt.Sprintf("METRIC\tCOUNT\nmatched\t%d\nmoved\t%d\nskipped\t%d\nfailed\t%d\nremaining\t%d", m.Matched, m.Moved, m.Skipped, m.Failed, m.Remaining), false, 1))
 		} else {
 			if result.Output != "" {
 				fmt.Fprintln(out, result.Output)
@@ -569,9 +569,9 @@ func run(argv []string, out, errs io.Writer, invoke func(Command, func(Progress)
 	} else if mode.stdoutTTY && (c.Name == "tabs" || c.Name == "find" || c.Name == "current") {
 		fmt.Fprint(out, renderTabs(result.Output, c.Detail || c.Name == "find" || c.Name == "current"))
 	} else if mode.stdoutTTY && c.Name == "profiles" {
-		fmt.Fprint(out, renderTable(result.Output, 1, 3))
+		fmt.Fprint(out, renderTable(result.Output, true, 1, 3))
 	} else if mode.stdoutTTY && c.Name == "windows" {
-		fmt.Fprint(out, renderTable(result.Output))
+		fmt.Fprint(out, renderTable(result.Output, false))
 	} else if result.Output != "" {
 		fmt.Fprintln(out, result.Output)
 	}
