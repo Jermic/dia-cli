@@ -4,27 +4,35 @@ function run(argv) {
     var source = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
     if (!source) throw Error('Cannot read CLI source');
     var focused = [];
-    function tab(id, title, url) {
-        return {id: function () { return id; }, title: function () { return title; },
+    var actions = [];
+    var savedTarget = {id: function () { return 'saved-tab'; }, focus: function () { focused.push('saved-tab'); },
+        close: function () { actions.push('close'); }, move: function (options) { actions.push(options.to.name()); },
+        execute: function (options) { actions.push(options.javascript); return 'answer\n\u001b[31m'; }};
+    function tab(id, title, url, pinned, loading) {
+        return {ispinned: function () { return !!pinned; }, loading: function () { return !!loading; }, id: function () { return id; }, title: function () { return title; },
             url: function () { return url; },
             focus: function () { focused.push(id); }};
     }
     function profile(name, tabs) {
         function collection() { return tabs; }
-        ['id', 'title', 'url'].forEach(function (prop) {
+        ['id', 'title', 'url', 'ispinned', 'loading'].forEach(function (prop) {
             collection[prop] = function () { return tabs.map(function (t) { return t[prop](); }); };
         });
-        collection.byId = function (id) { return tabs.filter(function (t) { return t.id() === id; })[0]; };
+        collection.byId = function (id) {
+            var found = tabs.filter(function (t) { return t.id() === id; })[0];
+            if (found) return found;
+            var error = Error('Missing profile tab'); error.errorNumber = -1728; throw error;
+        };
         return {name: function () { return name; }, index: function () { return 1; }, tabs: collection,
             focus: function () { focused.push(name); }};
     }
     function window(id, profiles, active) {
         return {id: function () { return id; }, profiles: function () { return profiles; },
-            activeTab: function () { return active; }};
+            activeTab: function () { return active; }, activeProfile: function () { return profiles[0]; }, tabLayout: function () { return 'sidebar'; }};
     }
     var a = tab('a', '中文 GitHub\tTitle\n\u001b[31m', 'https://example.com/?q="x"');
-    var b = tab('b', 'Second', 'https://github.com/Jermic');
-    var c = tab('c', 'Literal [x].*', 'https://example.org');
+    var b = tab('b', 'Second', 'https://github.com/Jermic', true, true);
+    var c = tab('c', 'Literal [x].*', 'https://example.org', true, false);
     var personal = profile('Personal', [a, b]);
     var work = profile('Work "quoted"', [a, c]);
     var windows = [window('w1', [personal, work], b), window('w2', [profile('Personal', [a])], a)];
@@ -32,6 +40,8 @@ function run(argv) {
     var calls = 0;
     var forbidListing = false;
     var directError = null;
+    var savedProfiles = [work];
+    var hiddenTarget = false;
     function readWindows() {
         if (forbidListing) throw Error('Must not enumerate windows for cached open');
         return windows;
@@ -39,9 +49,10 @@ function run(argv) {
     readWindows.byId = function (wid) {
         if (directError) throw directError;
         if (wid !== 'saved-window') throw Error('Wrong cached window ID');
-        return {tabs: {byId: function (tid) {
+        return {profiles: function () { return savedProfiles; }, tabs: {byId: function (tid) {
             if (tid !== 'saved-tab') throw Error('Wrong cached tab ID');
-            return {focus: function () { focused.push('saved-tab'); }};
+            if (hiddenTarget) { var e = Error('Hidden from window tabs'); e.errorNumber = -1728; throw e; }
+            return savedTarget;
         }}};
     };
     var cli = new Function('Application', ObjC.unwrap(source) + '\nreturn run;')(function (name) {
@@ -70,10 +81,47 @@ function run(argv) {
     fails(['tabs', '-sl'], 'requires -d');
     fails(['tabs', '-d', '--window'], 'Usage:');
     fails(['tabs', '-d', '--unknown'], 'Usage:');
+    fails(['_navigate', 'w', 't', 'javascript:alert(1)'], 'absolute HTTP(S)');
+    fails(['_navigate', 'w', 't', 'https://'], 'absolute HTTP(S)');
+    fails(['_navigate', 'w', 't', 'https://example.com/a b'], 'absolute HTTP(S)');
+    fails(['_navigate', 'w', 't', 'https://example.com/\u001b'], 'absolute HTTP(S)');
+    fails(['_navigate', 'w', 't', 'https://example.com/%ZZ'], 'absolute HTTP(S)');
+    fails(['layout', 'grid'], 'sidebar or tabStrip');
+    fails(['_exec', 'w', 't', '   '], 'non-empty JavaScript');
+    fails(['_close', 'w', 't', '--window', 'w'], 'Usage:');
     assert(calls === 0, 'help and validation never access Dia');
     forbidListing = true;
     cli(['_open', 'saved-window', 'saved-tab']);
     assert(focused.pop() === 'saved-tab', 'cached open focuses IDs without enumerating windows or tabs');
+    cli(['_close', 'saved-window', 'saved-tab']);
+    assert(actions.pop() === 'close', 'close uses saved IDs');
+    cli(['_navigate', 'saved-window', 'saved-tab', 'https://example.com/?q="quoted"']);
+    assert(savedTarget.url === 'https://example.com/?q="quoted"', 'navigate assigns exact URL');
+    cli(['_move', 'saved-window', 'saved-tab', 'Work "quoted"']);
+    assert(actions.pop() === 'Work "quoted"', 'move resolves exact profile in saved window without focus');
+    assert(focused.length === 0, 'move does not focus the tab or destination');
+    fails(['_move', 'saved-window', 'saved-tab', 'work'], 'No matching profile');
+    savedProfiles = [work, work];
+    fails(['_move', 'saved-window', 'saved-tab', 'Work "quoted"'], 'Ambiguous profile');
+    savedProfiles = [work];
+    assert(cli(['_exec', 'saved-window', 'saved-tab', '"quoted";\n2+2']) === 'answer  [31m', 'script result controls flattened');
+    assert(actions.pop() === '"quoted";\n2+2', 'script passed verbatim as data');
+    var originalExecute = savedTarget.execute;
+    savedTarget.execute = function () { var e = Error('Script object missing'); e.errorNumber = -1728; throw e; };
+    fails(['_exec', 'saved-window', 'saved-tab', 'test()'], 'Script object missing');
+    savedTarget.execute = originalExecute;
+    hiddenTarget = true;
+    savedProfiles = [personal, profile('Hidden', [savedTarget])];
+    cli(['_close', 'saved-window', 'saved-tab']);
+    assert(actions.pop() === 'close', 'saved target in hidden profile resolves by ID without listing windows');
+    savedProfiles = [personal];
+    fails(['_close', 'saved-window', 'saved-tab'], 'Refresh with dia tabs or dia find');
+    var originalById = personal.tabs.byId;
+    personal.tabs.byId = function () { var e = Error('Profile permission denied'); e.errorNumber = -1743; throw e; };
+    fails(['_close', 'saved-window', 'saved-tab'], 'Profile permission denied');
+    personal.tabs.byId = originalById;
+    hiddenTarget = false;
+    savedProfiles = [work];
     directError = new Error('Missing object');
     directError.errorNumber = -1728;
     fails(['_open', 'saved-window', 'saved-tab'], 'Refresh with dia tabs or dia find');
@@ -86,6 +134,23 @@ function run(argv) {
     assert(cli(['count', '--window', 'w1']) === '3', 'window scope');
     assert(cli(['links', '--window', 'w1']) === 'https://example.org\nhttps://github.com/Jermic\nhttps://example.com/?q="x"', 'links only: title order, full URLs, no header or numbering');
     assert(cli(['links']).split('\n').length === 4, 'links preserve separate window occurrences');
+    assert(cli(['windows']) === 'WINDOW\tPROFILE\tLAYOUT\nw1\tPersonal\tsidebar\nw2\tPersonal\tsidebar', 'windows lists active profile and layout');
+    assert(cli(['windows', '--window', 'w2']).split('\n').length === 2, 'windows scope');
+    cli(['layout', 'tabStrip', '--window', 'w2']);
+    assert(windows[1].tabLayout === 'tabStrip' && typeof windows[0].tabLayout === 'function', 'layout changes scoped window only');
+    cli(['layout', 'sidebar']);
+    assert(windows[0].tabLayout === 'sidebar', 'layout defaults to front window');
+    assert(cli(['tabs', '--pinned', '--window', 'w1']).split('\n').length === 3, 'pinned filter');
+    assert(cli(['tabs', '--loading']).split('\n').length === 2, 'loading filter');
+    assert(cli(['tabs', '--pinned', '-d', '--loading', '-sl', '--window', 'w1']).split('\n')[1].split('\t')[2] === 'b', 'filters AND with options in any order');
+    var originalPinned = personal.tabs.ispinned;
+    personal.tabs.ispinned = function () { return []; };
+    fails(['tabs', '--pinned'], 'Tabs changed');
+    personal.tabs.ispinned = originalPinned;
+    var originalLoading = personal.tabs.loading;
+    personal.tabs.loading = function () { return []; };
+    fails(['tabs', '--loading'], 'Tabs changed');
+    personal.tabs.loading = originalLoading;
     var listed = cli(['tabs']);
     assert(listed.split('\n').length === 5, 'one row per tab');
     assert(listed.indexOf('\u001b') === -1, 'terminal escape filtered');
@@ -134,6 +199,8 @@ function run(argv) {
     assert(cli(['links']) === '', 'no windows yields no links');
     assert(cli(['tabs']).split('\n').length === 1, 'empty list header');
     fails(['current'], 'No open');
+    fails(['layout', 'sidebar'], 'No open');
+    assert(cli(['windows']) === 'WINDOW\tPROFILE\tLAYOUT', 'empty windows header');
     running = false;
     fails(['count'], 'not running');
     return assertions + ' behavior assertions passed';
