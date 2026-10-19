@@ -47,4 +47,64 @@ with tempfile.TemporaryDirectory() as directory:
         assert 'https://example.com/path' in shown and 'URL' in header, shown
         positions.append(header.index('URL'))
     assert positions[0] < positions[1], positions
-print('PTY binary display passed at 40 and 120 columns without COLUMNS.')
+
+    mock.write_text('#!' + __import__('sys').executable + '\n' + '''import json, os, sys
+request = json.loads(sys.argv[-1])
+if request.get('progress'):
+    print(json.dumps({'progress': {'phase': 'scan', 'completed': 0, 'total': 0}}), flush=True)
+    print(json.dumps({'progress': {'phase': 'preflight', 'window': 'w1', 'profile': 'Work', 'completed': 1, 'total': 1}}), flush=True)
+    print(json.dumps({'progress': {'phase': 'done', 'completed': 2, 'total': 2}}), flush=True)
+print(os.environ['DIA_TEST_RESULT'])
+''')
+
+    def terminal_run(args, result, stdout_tty=True, stderr_tty=True):
+        master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 120, 0, 0))
+        process = subprocess.Popen([str(root / 'bin/dia'), *args],
+                                   stdin=subprocess.DEVNULL,
+                                   stdout=slave if stdout_tty else subprocess.PIPE,
+                                   stderr=slave if stderr_tty else subprocess.PIPE,
+                                   env=dict(env, DIA_TEST_RESULT=json.dumps(result)))
+        os.close(slave)
+        chunks = []
+        while True:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError as error:
+                if error.errno == errno.EIO:
+                    break
+                raise
+            if not chunk:
+                break
+            chunks.append(chunk)
+        os.close(master)
+        out, err = process.communicate(timeout=5)
+        terminal = b''.join(chunks).decode().replace('\r', '')
+        assert process.returncode == 0, (terminal, out, err)
+        return terminal, (out or b'').decode(), (err or b'').decode()
+
+    windows = {'output': 'WINDOW\tPROFILE\tLAYOUT\nw1\tA\tsidebar\nw2\tLong\ttabStrip'}
+    shown, out, err = terminal_run(['windows'], windows)
+    assert 'w1      A        sidebar\n' in shown and '\t' not in shown, shown
+    shown, out, err = terminal_run(['windows'], windows, False, False)
+    assert out == windows['output'] + '\n' and not err, (out, err)
+
+    preview = {'output': 'ACTION\tWINDOW\tTAB\tSOURCE\tTARGET\tURL\nMOVE\tw1\ta\tPersonal\tWork\thttps://example.com',
+               'move': {'matched': 2, 'moved': 0, 'skipped': 1, 'failed': 0, 'remaining': 1}}
+    for stdout_tty, stderr_tty in ((True, True), (False, True), (True, False), (False, False)):
+        shown, out, err = terminal_run(['mv', 'example.com', 'Work', '-n'], preview, stdout_tty, stderr_tty)
+        assert ('Scanning windows' in shown) == stderr_tty, (shown, out, err)
+        assert not err and 'Scanning' not in out, (shown, out, err)
+        if stdout_tty:
+            assert 'Preview (no tabs moved)' in shown and 'METRIC     COUNT\nmatched        2\nmoved          0\n' in shown, shown
+            assert 'remaining      1\n' in shown and '\t' not in shown, shown
+        else:
+            assert out == preview['output'] + '\ndry-run matched=2 moved=0 skipped=1 failed=0 remaining=1\n', out
+        assert 'Moving tabs' not in shown and 'Moved tabs' not in shown, shown
+
+    for args, result in ((['links'], {'output': 'https://example.com\nhttps://a.example.com'}),
+                         (['count'], {'output': '2'})):
+        shown, out, err = terminal_run(args, result, False, True)
+        assert out == result['output'] + '\n' and not shown and not err, (shown, out, err)
+
+print('PTY tables, independent stderr progress, and pipe compatibility passed.')

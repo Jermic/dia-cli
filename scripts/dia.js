@@ -45,8 +45,16 @@ function domainMatch(url, domains) {
     var host = webHost(url);
     if (!host) return false;
     return domains.some(function (domain) {
-        return domain.subdomains ? host.length > domain.host.length + 1 && host.slice(-domain.host.length - 1) === '.' + domain.host : host === domain.host;
+        var child = host.length > domain.host.length + 1 && host.slice(-domain.host.length - 1) === '.' + domain.host;
+        return domain.subdomains ? child : host === domain.host || !domain.exact && child;
     });
+}
+
+function progress(c, phase, window, profile, completed, total) {
+    if (!c.progress) return;
+    var event = {phase: phase, window: cell(window), profile: cell(profile), completed: completed || 0, total: total || 0};
+    var data = $(JSON.stringify({progress: event}) + '\n').dataUsingEncoding($.NSUTF8StringEncoding);
+    $.NSFileHandle.fileHandleWithStandardOutput.writeData(data);
 }
 
 function run(argv) {
@@ -78,6 +86,7 @@ function run(argv) {
         return JSON.stringify(result);
     }
 
+    progress(c, 'scan');
     var windows = app.windows();
     if (c.window) {
         windows = windows.filter(function (w) { return String(w.id()) === c.window; });
@@ -102,13 +111,15 @@ function run(argv) {
 
     var rows = [], matches = [], seen = Object.create(null), selected = 0, plans = [];
     var query = c.name === 'find' ? c.args[0].toLowerCase() : '';
-    windows.forEach(function (w) {
+    windows.forEach(function (w, wi) {
         var wid = String(w.id());
+        progress(c, 'scan', wid, '', wi, windows.length);
         var profiles = w.profiles();
         var membership = Object.create(null);
         var windowCandidates = [];
-        profiles.forEach(function (p) {
+        profiles.forEach(function (p, pi) {
             var name = p.name();
+            progress(c, 'profile', wid, name, pi, profiles.length);
             if (c.name === 'profiles' || c.name === 'profile') {
                 if (c.name === 'profile' && name === c.args[0]) matches.push(p);
                 if (c.name === 'profiles') {
@@ -161,14 +172,18 @@ function run(argv) {
                 else if (listing) rows.push([wid, name, id, titles[i], urls[i]]);
             });
         });
+        progress(c, 'profile', wid, '', profiles.length, profiles.length);
         if (c.name === 'move-domain' && windowCandidates.length) {
+            progress(c, 'preflight', wid, c.target, 0, 1);
             var targets = profiles.filter(function (p) { return p.name() === c.target; });
             if (!targets.length) throw Error('No matching profile name in window ' + cell(wid) + ': ' + cell(c.target));
             if (targets.length !== 1) throw Error('Ambiguous profile name in window ' + cell(wid) + ': ' + cell(c.target));
             windowCandidates.forEach(function (entry) {
                 plans.push({window: entry.window, id: entry.id, source: entry.source, url: entry.url, tab: entry.tab, target: targets[0], skip: !!membership[String(entry.id)][c.target]});
             });
+            progress(c, 'preflight', wid, c.target, 1, 1);
         }
+        progress(c, 'scan', wid, '', wi + 1, windows.length);
     });
     if (c.profile && selected === 0) throw Error('No matching source profile name: ' + cell(c.profile));
     if (c.name === 'focus' || c.name === 'profile') {
@@ -180,24 +195,30 @@ function run(argv) {
         var tally = {matched: plans.length, moved: 0, skipped: 0, failed: 0, remaining: 0};
         plans.forEach(function (plan) { if (plan.skip) tally.skipped++; });
         tally.remaining = tally.matched - tally.skipped;
+        var totalMoves = tally.remaining;
+        progress(c, 'plan', '', c.target, plans.length, plans.length);
         if (c.dryRun) result.output = plans.length ? table(['ACTION', 'WINDOW', 'TAB', 'SOURCE', 'TARGET', 'URL'], plans.map(function (plan) {
             return [plan.skip ? 'SKIP' : 'MOVE', plan.window, plan.id, plan.source, c.target, plan.url];
         })) : 'No matching tabs.';
         if (!c.dryRun) {
             for (var i = 0; i < plans.length; i++) {
                 if (plans[i].skip) continue;
+                progress(c, 'moving', plans[i].window, c.target, tally.moved, totalMoves);
                 try {
                     plans[i].tab.move({to: plans[i].target});
-                    tally.moved++;
-                    tally.remaining--;
                 } catch (error) {
                     tally.failed = 1;
+                    progress(c, 'failure', plans[i].window, c.target, tally.moved, totalMoves);
                     result.error = 'Move stopped at window ' + cell(plans[i].window) + ', tab ' + cell(plans[i].id) + ', target ' + cell(c.target) + ': ' + cell(error);
                     break;
                 }
+                tally.moved++;
+                tally.remaining--;
+                progress(c, 'moved', plans[i].window, c.target, tally.moved, totalMoves);
             }
         }
         result.move = tally;
+        if (!result.error) progress(c, 'done', '', c.target, c.dryRun ? plans.length : tally.moved, c.dryRun ? plans.length : totalMoves);
     } else if (c.name === 'profiles') result.output = table(c.counts ? ['WINDOW', 'INDEX', 'PROFILE', 'COUNT'] : ['WINDOW', 'INDEX', 'PROFILE'], rows);
     else if (c.name === 'count') result.output = String(rows.length);
     else {

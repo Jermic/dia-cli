@@ -10,9 +10,9 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 ZSH = r'''
+fpath=("$DIA_COMPLETION_DIR" $fpath)
 autoload -Uz compinit
 compinit -D
-fpath=("$DIA_COMPLETION_DIR" $fpath)
 autoload -Uz _dia
 compadd() {
   shift
@@ -53,10 +53,14 @@ with tempfile.TemporaryDirectory() as tmp:
     assert trace.read_text().splitlines() == ['profiles']
     assert not marker.exists(), 'Profile data executed as shell code'
     trace.unlink()
-    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '--pinned', '--loading', '-n', '--dry-run']
+    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-E', '--exact-domain', '--pinned', '--loading', '-n', '--dry-run']
     assert not trace.exists(), 'flag completion queried Dia'
     assert complete('mv', 'skills.sh', '-p', '') == [], 'incomplete target queried a source Profile'
     assert not trace.exists(), 'incomplete target queried Dia'
+    assert complete('mv', 'skills.sh', '--exact-domain', '') == []
+    assert not trace.exists(), 'exact flag mistaken for target'
+    assert '--exact-domain' in complete('ps', '-c', '')
+    assert '--exact-domain' not in complete('windows', '')
     assert complete('move', '1', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
     assert complete('profile', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
     assert complete('tabs', '-p', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
@@ -64,7 +68,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert complete('open', '1', '') == ['-h', '--help']
     trace.unlink()
     assert complete('open', '1', '-p', '') == []
-    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '--pinned', '--loading']
+    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-E', '--exact-domain', '--pinned', '--loading']
     assert complete('unknown', '') == []
     assert not trace.exists(), 'invalid option or command queried Dia'
     assert complete('help', '') == commands, 'help command candidates changed'

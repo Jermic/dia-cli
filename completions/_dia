@@ -50,7 +50,7 @@ if (( CURRENT <= 2 + arity )); then
 fi
 if [[ $cmd == move-domain ]]; then
   case ${words[4]} in
-    -p|--profile|-w|--window|-D|--domain|--pinned|--loading|-n|--dry-run) return ;;
+    -p|--profile|-w|--window|-D|--domain|--pinned|--loading|-n|--dry-run|-E|--exact-domain) return ;;
   esac
 fi
 for (( i = 3 + arity; i < CURRENT; i++ )); do
@@ -71,11 +71,11 @@ case $pending in
 esac
 flags=(-h --help)
 case $cmd in
-  tabs) flags+=(-w --window -p --profile -D --domain --pinned --loading -d -detail -s -st -sl) ;;
+  tabs) flags+=(-w --window -p --profile -D --domain -E --exact-domain --pinned --loading -d -detail -s -st -sl) ;;
   find|count|links|move-domain)
-    flags+=(-w --window -p --profile -D --domain --pinned --loading)
+    flags+=(-w --window -p --profile -D --domain -E --exact-domain --pinned --loading)
     [[ $cmd == move-domain ]] && flags+=(-n --dry-run) ;;
-  profiles) flags+=(-w --window -p --profile -D --domain -c --counts) ;;
+  profiles) flags+=(-w --window -p --profile -D --domain -E --exact-domain -c --counts) ;;
   current|windows|focus|profile|layout) flags+=(-w --window) ;;
 esac
 compadd -- "${flags[@]}"
