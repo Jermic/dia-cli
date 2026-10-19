@@ -72,15 +72,15 @@ function run(argv) {
         assert(error.indexOf(message) !== -1, 'error: ' + args.join(' '));
         assert(focused.length === before, 'failed command must not focus');
     }
-    assert(cli(['help']).indexOf('Usage: dia') === 0, 'help');
+    assert(cli(['help']).indexOf('dia <command>') !== -1, 'help');
     fails(['bad'], 'Unknown command');
-    fails(['focus'], 'Usage:');
-    fails(['find', ''], 'Usage:');
-    fails(['tabs', 'extra'], 'Usage:');
-    fails(['count', '--window'], 'Usage:');
+    fails(['focus'], 'dia <command>');
+    fails(['find', ''], 'dia <command>');
+    fails(['tabs', 'extra'], 'dia <command>');
+    fails(['count', '--window'], 'dia <command>');
     fails(['tabs', '-sl'], 'requires -d');
-    fails(['tabs', '-d', '--window'], 'Usage:');
-    fails(['tabs', '-d', '--unknown'], 'Usage:');
+    fails(['tabs', '-d', '--window'], 'dia <command>');
+    fails(['tabs', '-d', '--unknown'], 'dia <command>');
     fails(['_navigate', 'w', 't', 'javascript:alert(1)'], 'absolute HTTP(S)');
     fails(['_navigate', 'w', 't', 'https://'], 'absolute HTTP(S)');
     fails(['_navigate', 'w', 't', 'https://example.com/a b'], 'absolute HTTP(S)');
@@ -88,7 +88,7 @@ function run(argv) {
     fails(['_navigate', 'w', 't', 'https://example.com/%ZZ'], 'absolute HTTP(S)');
     fails(['layout', 'grid'], 'sidebar or tabStrip');
     fails(['_exec', 'w', 't', '   '], 'non-empty JavaScript');
-    fails(['_close', 'w', 't', '--window', 'w'], 'Usage:');
+    fails(['_close', 'w', 't', '--window', 'w'], 'dia <command>');
     assert(calls === 0, 'help and validation never access Dia');
     forbidListing = true;
     cli(['_open', 'saved-window', 'saved-tab']);
