@@ -49,18 +49,26 @@ with tempfile.TemporaryDirectory() as tmp:
     for version in ('version', 'v', '-v', '--version'):
         assert complete(version, '') == ['-h', '--help']
     assert not trace.exists(), 'version completion queried Dia'
-    assert complete('mv', '') == [], 'domain slot offered fabricated candidates'
+    profiles = complete('mv', '')
+    assert profiles == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
+    trace.unlink()
     assert complete('mv', '-') == ['-h', '--help'], 'command help missing before required arguments'
     assert not trace.exists(), 'domain completion queried Dia'
     assert complete('mv', 'example.com', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
     assert trace.read_text().splitlines() == ['profiles']
     assert not marker.exists(), 'Profile data executed as shell code'
     trace.unlink()
-    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-n', '--dry-run']
+    assert complete('mv', '--', '-up', '') == profiles, 'literal selector was mistaken for a target-only flag'
+    trace.unlink()
+    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-up', '--unpinned', '-exd', '--exclude-domain', '-n', '--dry-run']
     assert not trace.exists(), 'flag completion queried Dia'
     for domain_command in ('domains', 'ds'):
         assert {'-s', '--subdomains', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading'} <= set(complete(domain_command, ''))
         assert complete(domain_command, '-k', '') == []
+    assert {'-up', '--unpinned', '-exd', '--exclude-domain'} <= set(complete('l', ''))
+    assert '--exclude-domain' in complete('mv', 'Read', '-up', '')
+    assert complete('mv', 'Read', '-exd', '') == []
+    assert complete('l', '--exclude-domain', '') == []
     assert not trace.exists(), 'domains flags queried Dia'
     for dedupe_command in ('dedupe', 'dd'):
         assert {'-a', '--apply', '-n', '--dry-run', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-w', '--window'} <= set(complete(dedupe_command, ''))
@@ -72,9 +80,9 @@ with tempfile.TemporaryDirectory() as tmp:
     trace.unlink()
     assert complete('ds', '-p', '') == ['Work Notes', "Bob's Work", f'Price $(touch {marker})', 'Team:Ops', '阅读']
     trace.unlink()
-    assert complete('mv', 'skills.sh', '-p', '') == [], 'incomplete target queried a source Profile'
-    assert not trace.exists(), 'incomplete target queried Dia'
-    assert complete('mv', 'skills.sh', '--exact-domain', '') == []
+    assert complete('mv', 'Read', '-p', '') == profiles
+    trace.unlink()
+    assert '--exclude-domain' in complete('mv', 'Read', '--exact-domain', '')
     assert not trace.exists(), 'exact flag mistaken for target'
     assert '--exact-domain' in complete('ps', '-c', '')
     assert '--exact-domain' not in complete('windows', '')
@@ -85,7 +93,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert complete('open', '1', '') == ['-h', '--help']
     trace.unlink()
     assert complete('open', '1', '-p', '') == []
-    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading']
+    assert complete('links', '-p', '-p', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-up', '--unpinned', '-exd', '--exclude-domain']
     assert '--keyword' in complete('tabs', '-p', '--', '')
     assert complete('mv', 'youtube', '--h') == ['-h', '--help']
     assert complete('tabs', '-k', '') == []

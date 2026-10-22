@@ -19,7 +19,7 @@ func TestKeywordSelectors(t *testing.T) {
 			t.Errorf("%q: %+v %v", args, c, err)
 		}
 	}
-	for _, args := range [][]string{{"mv", "bad..com", "Watch"}, {"mv", "bad/token", "Watch"}, {"mv", "---", "Watch"}, {"mv", "youtube", "Watch", "-E"}, {"tabs", "-D", "youtube"}, {"tabs", "-k", ""}, {"tabs", "-k", "a\nb"}, {"profiles", "-k", "youtube"}, {"current", "-k", "youtube"}, {"mv", "youtube", "-k", "other"}, {"mv", "youtube", "Watch", "-n", "--", "-D", "example.com"}, {"tabs", "-p", "Day", "--", "-D", "example.com"}} {
+	for _, args := range [][]string{{"mv", "bad..com", "Watch"}, {"mv", "bad/token", "Watch"}, {"mv", "---", "Watch"}, {"mv", "youtube", "Watch", "-E"}, {"tabs", "-D", "youtube"}, {"tabs", "-k", ""}, {"tabs", "-k", "a\nb"}, {"profiles", "-k", "youtube"}, {"current", "-k", "youtube"}, {"mv", "youtube", "Watch", "-n", "--", "-D", "example.com"}, {"tabs", "-p", "Day", "--", "-D", "example.com"}} {
 		if c, err := parse(args); err == nil {
 			t.Errorf("accepted %q: %+v", args, c)
 		}

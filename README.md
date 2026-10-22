@@ -66,7 +66,7 @@ Every command has a short form. Both forms accept the same arguments and flags.
 | `open` | `o` | Focus a saved row. |
 | `close` | `cl` | Close a saved row. |
 | `move` | `m` | Move a saved row to a profile. |
-| `move-domain` | `mv` | Move tabs selected by domains or URL keywords. |
+| `move-domain` | `mv` | Move tabs selected by domains, URL keywords, and tab filters. |
 | `navigate` | `nav` | Open an HTTP(S) URL in a saved row. |
 | `exec` | `e` | Run JavaScript in a saved row. |
 | `layout` | `la` | Set the window layout to `sidebar` or `tabStrip`. |
@@ -83,20 +83,25 @@ dia ps -c -k youtube            # Count matching URLs in each profile
 dia o 2                         # Focus row 2 from the last tabs/find list
 dia m 2 Work                    # Move saved row 2 to Work
 dia mv youtube Watch -n         # Preview a batch move by URL keyword
+dia mv Read -up -exd x.com -n    # Preview unpinned tabs outside x.com
 dia help mv                     # Show batch move usage and flags
 ```
 
 Use `dia help <command>` or `dia <command> -h` for command help. `-h` and `--help` before `--` show help, even when a positional argument is missing. A flag that takes a value consumes that value literally, so `-p --help` selects a profile named `--help`. To pass a literal positional argument named `-h` or `--help`, put it after `--`, as in `dia find -- -h`. JavaScript and quoted text that contain those strings stay literal.
 
-Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned` and `--loading` can filter tabs, find, count, links, domains, dedupe, and move-domain.
+Use `--window ID` or `-w ID` to scope a query or explicit ID/name action. Saved row actions always use the window ID from the saved list and reject `-w`. `tabs` accepts `-d`/`-detail` for full URLs, `-s`/`-st` for title order, and `-sl` for URL order; URL order requires `-d`. The last sort flag wins. `--pinned`, `--unpinned` (or `-up`), and `--loading` can filter tabs, find, count, links, domains, dedupe, and move-domain.
 
 Use `--profile NAME` or `-p NAME` to select a source profile by its exact, case-sensitive name. A requested profile that does not exist is an error. Queries skip other profiles before reading their tabs. Batch moves and dedupe still inspect all profile memberships to detect tabs that already belong to the target.
 
 Use `--domain DOMAIN` or `-D DOMAIN` repeatedly to match HTTP(S) hosts. A plain domain matches the host and every subdomain level. Add `--exact-domain` or `-E` to match plain domains exactly, regardless of flag order. `*.example.com` matches subdomains but excludes `example.com`, even with `-E`. Domain matching ignores the URL path and port and folds host case. Domain arguments are DNS names, not URLs, paths, ports, or arbitrary globs.
 
+Use `--exclude-domain DOMAIN` or `-exd DOMAIN` repeatedly to exclude HTTP(S) hosts. Plain `x.com` excludes the root and all subdomains; `'*.x.com'` excludes only subdomains. Exclusions veto positive domain or keyword matches. `-E` applies to included and excluded plain domains. Non-HTTP(S) URLs remain eligible for the other filters. `--unpinned` excludes fixed tabs and cannot combine with `--pinned`.
+
 Use `--keyword TEXT` or `-k TEXT` repeatedly to match text anywhere in a full URL. Keywords are case-insensitive literal text, not title searches, globs, or regular expressions. A keyword can match the host, path, or query. For example, `-k youtube` also matches `https://example.com/?next=youtube`.
 
-Domains and keywords form one union. Profile, state, and `find` filters intersect with that union. These filters are available on `tabs`, `find`, `count`, `links`, `domains`, `dedupe`, `move-domain`, and `profiles -c`. Domain and keyword filters on `profiles` require `-c`. `-E` requires at least one domain and has no effect on keywords.
+Domains and keywords form one union. Profile, state, and `find` filters intersect with that union. These filters are available on `tabs`, `find`, `count`, `links`, `domains`, `dedupe`, `move-domain`, and `profiles -c`. Included/excluded domain and keyword filters on `profiles` require `-c`. `-E` requires at least one included or excluded domain and has no effect on keywords.
+
+Without a positive positional selector, put the destination first, such as `dia mv Read --unpinned --exclude-domain x.com --dry-run`. This form requires a tab-selection filter; `-p`, `-w`, and `-n` alone do not qualify. Legacy `dia mv github.com GitHub` and `dia mv -k youtube Watch` still work. Preview with `-n` before removing it to apply. An unpinned move rechecks pin state during preflight and immediately before each move; a newly pinned candidate stops the batch.
 
 ### Domain counts
 

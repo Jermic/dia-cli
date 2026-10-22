@@ -50,7 +50,8 @@ function domainMatch(url, domains) {
     });
 }
 
-function urlMatch(url, domains, keywords) {
+function urlMatch(url, domains, keywords, excluded) {
+    if (excluded && excluded.length && domainMatch(url, excluded)) return false;
     if ((!domains || !domains.length) && (!keywords || !keywords.length)) return true;
     return !!(domains && domains.length && domainMatch(url, domains)) || !!(keywords && keywords.some(function (keyword) {
         return String(url == null ? '' : url).toLowerCase().indexOf(keyword.toLowerCase()) !== -1;
@@ -102,7 +103,7 @@ function dedupe(c, windows) {
             var chosen = !c.profile || c.profile === name;
             progress(c, 'profile', wid, name, pi, profiles.length);
             var properties = chosen ? ['url'] : [];
-            if (chosen && c.pinned) properties.push('ispinned');
+            if (chosen && (c.pinned || c.unpinned)) properties.push('ispinned');
             if (chosen && c.loading) properties.push('loading');
             var snapshot = readTabs(p, properties);
             snapshots.push({profile: p, name: name, key: key, snapshot: snapshot, chosen: chosen});
@@ -119,7 +120,7 @@ function dedupe(c, windows) {
             var byURL = Object.create(null), snapshot = entry.snapshot;
             snapshot.id.forEach(function (id, i) {
                 var url = String(snapshot.url[i] == null ? '' : snapshot.url[i]);
-                if (!urlMatch(url, c.domains, c.keywords) || c.pinned && !snapshot.ispinned[i] || c.loading && !snapshot.loading[i]) return;
+                if (!urlMatch(url, c.domains, c.keywords, c.excludeDomains) || c.pinned && !snapshot.ispinned[i] || c.unpinned && snapshot.ispinned[i] || c.loading && !snapshot.loading[i]) return;
                 if (!byURL[url]) byURL[url] = [];
                 if (byURL[url].some(function (tab) { return tab.id === String(id); })) return;
                 byURL[url].push({id: String(id), url: url, membership: membership[String(id)]});
@@ -293,7 +294,7 @@ function run(argv) {
 
     var rows = [], matches = [], seen = Object.create(null), selected = 0, plans = [], planGroups = [];
     var query = c.name === 'find' ? c.args[0].toLowerCase() : '';
-    var urlFiltered = !!(c.domains && c.domains.length || c.keywords && c.keywords.length);
+    var urlFiltered = !!(c.domains && c.domains.length || c.keywords && c.keywords.length || c.excludeDomains && c.excludeDomains.length);
     windows.forEach(function (w, wi) {
         var wid = String(w.id());
         progress(c, 'scan', wid, '', wi, windows.length);
@@ -313,7 +314,7 @@ function run(argv) {
                         var unique = Object.create(null);
                         var profileTabs = readTabs(p, urlFiltered ? ['url'] : []);
                         profileTabs.id.forEach(function (id, i) {
-                            if (urlMatch(urlFiltered ? profileTabs.url[i] : '', c.domains, c.keywords)) unique[String(id)] = true;
+                            if (urlMatch(urlFiltered ? profileTabs.url[i] : '', c.domains, c.keywords, c.excludeDomains)) unique[String(id)] = true;
                         });
                         profileRow.push(Object.keys(unique).length);
                     }
@@ -329,7 +330,7 @@ function run(argv) {
             if (selectedProfile) {
                 if (listing) properties.push('title');
                 if (urlsNeeded) properties.push('url');
-                if (c.pinned) properties.push('ispinned');
+                if (c.pinned || c.unpinned) properties.push('ispinned');
                 if (c.loading) properties.push('loading');
             }
             var snapshot = readTabs(p, properties);
@@ -349,7 +350,7 @@ function run(argv) {
             var loading = snapshot.loading || [];
             var planGroup;
             ids.forEach(function (id, i) {
-                if (c.pinned && !pinned[i] || c.loading && !loading[i] || !urlMatch(urlsNeeded ? urls[i] : '', c.domains, c.keywords)) return;
+                if (c.pinned && !pinned[i] || c.unpinned && pinned[i] || c.loading && !loading[i] || !urlMatch(urlsNeeded ? urls[i] : '', c.domains, c.keywords, c.excludeDomains)) return;
                 var key = JSON.stringify([wid, id]);
                 if (seen[key]) return;
                 if (c.name === 'find' && (String(titles[i]) + '\n' + String(urls[i])).toLowerCase().indexOf(query) === -1) return;
@@ -393,12 +394,13 @@ function run(argv) {
         result.output = 'Focused ' + cell(c.args[0]);
     } else if (c.name === 'move-domain') {
         planGroups.forEach(function (group) {
-            var snapshot = readTabs(group.profile, ['url'], group.plans.map(function (plan) { return plan.id; }));
-            var urls = Object.create(null);
-            snapshot.id.forEach(function (id, i) { urls[String(id)] = snapshot.url[i]; });
+            var snapshot = readTabs(group.profile, c.unpinned ? ['url', 'ispinned'] : ['url'], group.plans.map(function (plan) { return plan.id; }));
+            var urls = Object.create(null), pinned = Object.create(null);
+            snapshot.id.forEach(function (id, i) { urls[String(id)] = snapshot.url[i]; if (c.unpinned) pinned[String(id)] = snapshot.ispinned[i]; });
             group.plans.forEach(function (plan) {
                 if (!Object.prototype.hasOwnProperty.call(urls, String(plan.id))) throw Error('Tab ID changed since scan. Please retry.');
                 if (String(urls[String(plan.id)]) !== String(plan.url)) throw Error('Tab URL changed since scan. Please retry.');
+                if (c.unpinned && pinned[String(plan.id)]) throw Error('Tab became pinned since scan. Please retry.');
             });
         });
         var tally = {matched: plans.length, moved: 0, skipped: 0, failed: 0, remaining: 0};
@@ -415,6 +417,7 @@ function run(argv) {
                 progress(c, 'moving', plans[i].window, c.target, tally.moved, totalMoves);
                 try {
                     validatePlan(plans[i]);
+                    if (c.unpinned && plans[i].tab.ispinned()) throw Error('Tab became pinned since scan. Please retry.');
                     plans[i].tab.move({to: plans[i].target});
                 } catch (error) {
                     tally.failed = 1;

@@ -33,21 +33,23 @@ type TabRef struct {
 }
 
 type Command struct {
-	Name       string          `json:"name"`
-	Args       []string        `json:"args,omitempty"`
-	Window     string          `json:"window,omitempty"`
-	Profile    string          `json:"profile,omitempty"`
-	Domains    []DomainPattern `json:"domains,omitempty"`
-	Keywords   []string        `json:"keywords,omitempty"`
-	Target     string          `json:"target,omitempty"`
-	Detail     bool            `json:"detail,omitempty"`
-	Sort       string          `json:"sort,omitempty"`
-	Pinned     bool            `json:"pinned,omitempty"`
-	Loading    bool            `json:"loading,omitempty"`
-	DryRun     bool            `json:"dryRun,omitempty"`
-	Counts     bool            `json:"counts,omitempty"`
-	Progress   bool            `json:"progress,omitempty"`
-	Subdomains bool            `json:"subdomains,omitempty"`
+	Name           string          `json:"name"`
+	Args           []string        `json:"args,omitempty"`
+	Window         string          `json:"window,omitempty"`
+	Profile        string          `json:"profile,omitempty"`
+	Domains        []DomainPattern `json:"domains,omitempty"`
+	ExcludeDomains []DomainPattern `json:"excludeDomains,omitempty"`
+	Keywords       []string        `json:"keywords,omitempty"`
+	Target         string          `json:"target,omitempty"`
+	Detail         bool            `json:"detail,omitempty"`
+	Sort           string          `json:"sort,omitempty"`
+	Pinned         bool            `json:"pinned,omitempty"`
+	Unpinned       bool            `json:"unpinned,omitempty"`
+	Loading        bool            `json:"loading,omitempty"`
+	DryRun         bool            `json:"dryRun,omitempty"`
+	Counts         bool            `json:"counts,omitempty"`
+	Progress       bool            `json:"progress,omitempty"`
+	Subdomains     bool            `json:"subdomains,omitempty"`
 }
 
 type Progress struct {
@@ -122,7 +124,7 @@ TAB COMMANDS
   focus, fo <tab-id>       Focus a tab by ID
   close, cl <row>         Close a saved row
   move, m <row> <profile> Move a saved row in its window
-  move-domain, mv <selector> <target>  Move matching tabs in one batch (md also works)
+  move-domain, mv [selector] <target>  Move matching tabs in one batch (md also works)
   navigate, nav <row> <url>  Navigate a saved row
   exec, e <row> <javascript> Run JavaScript in a saved row
 
@@ -136,6 +138,8 @@ FILTERS AND FLAGS
   --profile, -p <name>    Select a source profile (case-sensitive)
   --domain, -D <domain>   Match HTTP(S) root + subdomains; repeatable
                          Use *.example.com for subdomains only
+  --exclude-domain, -exd <domain>  Exclude root + subdomains; repeatable
+  --unpinned, -up         Exclude pinned tabs; conflicts with --pinned
   --keyword, -k <text>   Match URL text, case-insensitive; repeatable
   --exact-domain, -E      Match plain domains exactly (requires a domain)
   --window, -w <id>       Select one window
@@ -149,7 +153,8 @@ FILTERS AND FLAGS
   --help, -h              Show help
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
-Domains and URL keywords form a union; other filters intersect.
+Domains and URL keywords form a union; exclusions veto matches; other filters intersect.
+Target-only moves require a tab filter, not just -p, -w, or -n.
 Use -- before literal positional arguments such as a profile named --help.
 Move-domain never creates profiles or moves between windows.
 Move progress goes to terminal stderr. Piped stdout keeps machine-readable output.
@@ -159,7 +164,8 @@ EXAMPLES
   dia <command> --help
   dia l -p Github -D github.com
   dia mv github.com Work -n
-  dia mv youtube Watch -n`
+  dia mv youtube Watch -n
+  dia mv Read -up -exd x.com -n`
 
 var aliases = map[string]string{
 	"dd": "dedupe", "ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
@@ -294,7 +300,7 @@ func parse(argv []string) (Command, error) {
 		normalized = append(normalized, value)
 		valued := !isRow(name) && (value == "-w" || value == "--window")
 		if isFiltered(name) || name == "profiles" {
-			valued = valued || value == "-p" || value == "--profile" || value == "-D" || value == "--domain" || value == "-k" || value == "--keyword"
+			valued = valued || value == "-p" || value == "--profile" || value == "-D" || value == "--domain" || value == "-k" || value == "--keyword" || value == "-exd" || value == "--exclude-domain"
 		}
 		if valued && i+1 < len(argv) {
 			i++
@@ -314,8 +320,11 @@ func parse(argv []string) (Command, error) {
 	}
 	if name == "move-domain" && len(argv) > 2 && literalAt > 2 {
 		switch argv[2] {
-		case "-p", "--profile", "-w", "--window", "-D", "--domain", "-k", "--keyword", "--pinned", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
-			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
+		case "-p", "--profile", "-w", "--window", "-D", "--domain", "-k", "--keyword", "--pinned", "--unpinned", "-up", "--exclude-domain", "-exd", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
+			if explicitKeyword {
+				return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
+			}
+			arity = 1
 		}
 	}
 	c.Args = append([]string(nil), argv[1:1+arity]...)
@@ -332,8 +341,11 @@ func parse(argv []string) (Command, error) {
 		flag := args[0]
 		args = args[1:]
 		switch flag {
-		case "--window", "-w", "--profile", "-p", "--domain", "-D", "--keyword", "-k":
+		case "--window", "-w", "--profile", "-p", "--domain", "-D", "--keyword", "-k", "--exclude-domain", "-exd":
 			if len(args) == 0 || args[0] == "" {
+				if name == "move-domain" && arity == 1 && (flag == "-p" || flag == "--profile") {
+					return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
+				}
 				return c, fmt.Errorf("%s requires a value", flag)
 			}
 			value := args[0]
@@ -357,15 +369,19 @@ func parse(argv []string) (Command, error) {
 					return c, err
 				}
 				c.Keywords = append(c.Keywords, value)
-			case "--domain", "-D":
+			case "--domain", "-D", "--exclude-domain", "-exd":
 				if !(isFiltered(name) || name == "profiles") {
-					return c, errors.New("--domain is not valid here")
+					return c, fmt.Errorf("%s is not valid here", flag)
 				}
 				p, err := domain(value)
 				if err != nil {
 					return c, err
 				}
-				c.Domains = append(c.Domains, p)
+				if flag == "--exclude-domain" || flag == "-exd" {
+					c.ExcludeDomains = append(c.ExcludeDomains, p)
+				} else {
+					c.Domains = append(c.Domains, p)
+				}
 			}
 		case "--exact-domain", "-E":
 			if !(isFiltered(name) || name == "profiles") {
@@ -377,6 +393,11 @@ func parse(argv []string) (Command, error) {
 				return c, errors.New("--pinned is not valid here")
 			}
 			c.Pinned = true
+		case "--unpinned", "-up":
+			if !isFiltered(name) {
+				return c, errors.New("--unpinned is not valid here")
+			}
+			c.Unpinned = true
 		case "--loading":
 			if !isFiltered(name) {
 				return c, errors.New("--loading is not valid here")
@@ -425,6 +446,9 @@ func parse(argv []string) (Command, error) {
 			return c, fmt.Errorf("unexpected argument: %s", flag)
 		}
 	}
+	if c.Pinned && c.Unpinned {
+		return c, errors.New("--pinned and --unpinned cannot be combined")
+	}
 	if name == "dedupe" {
 		if apply && dryRun {
 			return c, errors.New("--apply and --dry-run cannot be combined")
@@ -434,8 +458,8 @@ func parse(argv []string) (Command, error) {
 	if c.Sort == "url" && !c.Detail {
 		return c, errors.New("link sorting (-sl) requires -d (or -detail)")
 	}
-	if name == "profiles" && (len(c.Domains) > 0 || len(c.Keywords) > 0) && !c.Counts {
-		return c, errors.New("profiles --domain/--keyword requires --counts")
+	if name == "profiles" && (len(c.Domains) > 0 || len(c.ExcludeDomains) > 0 || len(c.Keywords) > 0) && !c.Counts {
+		return c, errors.New("profiles --domain/--exclude-domain/--keyword requires --counts")
 	}
 	if name == "layout" && c.Args[0] != "sidebar" && c.Args[0] != "tabStrip" {
 		return c, errors.New("layout must be sidebar or tabStrip")
@@ -453,7 +477,13 @@ func parse(argv []string) (Command, error) {
 			return c, errors.New("row must be a positive number without leading zeros")
 		}
 	}
-	if name == "move-domain" {
+	if name == "move-domain" && arity == 1 {
+		if !c.Pinned && !c.Unpinned && !c.Loading && len(c.Domains) == 0 && len(c.ExcludeDomains) == 0 && len(c.Keywords) == 0 {
+			return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile; target-only moves require a tab filter")
+		}
+		c.Target = c.Args[0]
+	}
+	if name == "move-domain" && arity == 2 {
 		p, err := domain(c.Args[0])
 		if explicitKeyword {
 			if err := keyword(c.Args[0]); err != nil {
@@ -471,11 +501,13 @@ func parse(argv []string) (Command, error) {
 		c.Target = c.Args[1]
 	}
 	if exactDomain {
-		if len(c.Domains) == 0 {
+		if len(c.Domains) == 0 && len(c.ExcludeDomains) == 0 {
 			return c, errors.New("--exact-domain requires a domain")
 		}
-		for i := range c.Domains {
-			c.Domains[i].Exact = !c.Domains[i].Subdomains
+		for _, patterns := range [][]DomainPattern{c.Domains, c.ExcludeDomains} {
+			for i := range patterns {
+				patterns[i].Exact = !patterns[i].Subdomains
+			}
 		}
 	}
 	return c, nil

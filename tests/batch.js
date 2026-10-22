@@ -5,7 +5,7 @@ function run(argv) {
     if (!source) throw Error('Cannot read CLI source');
     var actions = [], events = [], transportFailure = false, scalarReads = 0, vectorRead = false;
     function tab(id, title, url) {
-        return {id: function () { if (!vectorRead) scalarReads++; return id; }, title: function () { return title; }, url: function () { if (!vectorRead) scalarReads++; return url; },
+        return {id: function () { if (!vectorRead) scalarReads++; return id; }, title: function () { return title; }, url: function () { if (!vectorRead) scalarReads++; return url; }, ispinned: function () { return !!this.pinned; },
             move: function (options) {
                 if (this.fail) throw Error('Simulated move failure');
                 actions.push(id + '>' + options.to.name());
@@ -17,7 +17,7 @@ function run(argv) {
         p.reads = 0;
         function collection(ids) {
             function tabs() { return items; }
-            ['id', 'title', 'url'].forEach(function (prop) { tabs[prop] = function () {
+            ['id', 'title', 'url', 'ispinned'].forEach(function (prop) { tabs[prop] = function () {
                 p.reads++;
                 if (p.onRead) p.onRead(prop, ids);
                 vectorRead = true;
@@ -262,5 +262,46 @@ function run(argv) {
     windows = [window('targeted-reorder', [reorder, profile('Work', [])])];
     error({name: 'move-domain', profile: 'Personal', domains: exact, target: 'Work'}, 'Tabs changed');
     assert(actions.length === 0, 'targeted same-size reorder cannot pair wrong URL and ID');
+    actions = [];
+    var rootX = tab('root-x', 'X root', 'https://x.com/feed');
+    var subX = tab('sub-x', 'X sub', 'https://mobile.x.com/');
+    var fixed = tab('fixed', 'Fixed', 'https://example.com/fixed'); fixed.pinned = true;
+    var loose = tab('loose', 'Loose', 'https://example.com/loose');
+    var local = tab('local', 'Local', 'file:///notes/x.com');
+    var excluded = [{host: 'x.com'}];
+    var negativeSource = profile('Personal', [rootX, subX, fixed, loose, local]);
+    windows = [window('negative', [negativeSource, profile('Read', [])])];
+    assert(call({name: 'count', unpinned: true, excludeDomains: excluded}).output === '2', 'negative filters intersect and leave non-HTTP URLs eligible');
+    assert(call({name: 'links', unpinned: true, excludeDomains: excluded}).output.split('\n').length === 2, 'links exclude pinned and excluded hosts');
+    assert(call({name: 'tabs', unpinned: true, excludeDomains: excluded}).tabs.length === 2, 'tabs use negative filters');
+    assert(call({name: 'find', args: ['loose'], unpinned: true, excludeDomains: excluded}).tabs.length === 1, 'find intersects negative filters');
+    assert(call({name: 'domains', unpinned: true, excludeDomains: excluded}).urls.length === 2, 'domains counts receive only eligible URLs');
+    assert(call({name: 'profiles', counts: true, excludeDomains: excluded}).output.indexOf('Personal\t3') !== -1, 'profile counts honor domain exclusion');
+    assert(call({name: 'count', keywords: ['x.com'], excludeDomains: excluded}).output === '1', 'excluded hosts veto URL keyword matches without excluding paths');
+    assert(call({name: 'count', excludeDomains: [{host: 'x.com', subdomains: true}]}).output === '4', 'wildcard exclusion keeps root');
+    assert(call({name: 'count', excludeDomains: [{host: 'x.com', exact: true}]}).output === '4', 'exact exclusion keeps subdomains');
+    assert(call({name: 'count', excludeDomains: [{host: 'x.com'}, {host: 'example.com'}]}).output === '1', 'excluded domains form union');
+    var negativePlan = {name: 'move-domain', unpinned: true, excludeDomains: excluded, target: 'Read', dryRun: true};
+    var negativePreview = call(negativePlan);
+    assert(negativePreview.move.matched === 2 && negativePreview.move.moved === 0 && actions.length === 0, 'target-only preview makes no moves');
+    negativePlan.dryRun = false;
+    assert(call(negativePlan).move.moved === 2 && actions.join(',') === 'loose>Read,local>Read', 'apply moves only unpinned tabs outside excluded hosts');
+    actions = [];
+    var driftA = tab('drift-a', 'A', 'https://other.test/a'), driftB = tab('drift-b', 'B', 'https://other.test/b');
+    var driftSource = profile('Personal', [driftA, driftB]);
+    windows = [window('drift', [driftSource, profile('Read', [])])];
+    driftSource.onRead = function (prop, ids) { if (ids && prop === 'ispinned') driftB.pinned = true; };
+    negativePlan.dryRun = true;
+    error(negativePlan, 'became pinned');
+    assert(actions.length === 0, 'pin drift aborts preview without writes');
+    driftB.pinned = false; negativePlan.dryRun = false;
+    error(negativePlan, 'became pinned');
+    assert(actions.length === 0, 'later pin drift aborts entire preflight before writes');
+    driftSource.onRead = null; driftB.pinned = false;
+    var originalMove = driftA.move;
+    driftA.move = function (options) { originalMove.call(this, options); driftB.pinned = true; };
+    var driftResult = call(negativePlan);
+    assert(driftResult.move.moved === 1 && driftResult.move.failed === 1 && driftResult.move.remaining === 1 && actions.join(',') === 'drift-a>Read', 'newly pinned tab stops apply with exact partial counts');
+    assert(driftResult.error.indexOf('became pinned') !== -1, 'pin drift reports actionable reason');
     return assertions + ' batch assertions passed';
 }

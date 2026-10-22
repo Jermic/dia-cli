@@ -101,6 +101,11 @@ function run(argv) {
     assert(call({loading: true, dryRun: false}).dedupe.skipped === 1 && actions.length === 0, 'loading filter only previews protected duplicates');
     fixture = basic(); fixture.a.pinned = true; fixture.b.pinned = true;
     assert(call({pinned: true, dryRun: false}).dedupe.skipped === 1 && actions.length === 0, 'pinned filter never closes protected tabs');
+    fixture = basic(); fixture.b.pinned = true;
+    assert(call({unpinned: true}).dedupe.duplicates === 1 && actions.length === 0, 'unpinned duplicate preview filters before grouping without closing');
+    assert(call({unpinned: true, dryRun: false}).dedupe.closed === 1 && actions.join(',') === 'c' && fixture.p.items.indexOf(fixture.b) !== -1, 'unpinned dedupe preserves pinned copies');
+    fixture = basic();
+    assert(call({excludeDomains: [{host: 'example.com'}], keywords: ['example'], dryRun: false}).dedupe.duplicates === 0 && actions.length === 0, 'dedupe exclusions veto keyword matches before grouping');
     fixture = basic(); windows[0].items.push(profile('Other', 2, [fixture.b]));
     protectedResult = call({profile: 'Work', dryRun: false});
     assert(actions.join(',') === 'a,c' && fixture.p.items[0] === fixture.b, 'shared keeper protected even outside selected Profile');

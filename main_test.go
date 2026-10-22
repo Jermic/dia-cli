@@ -109,7 +109,6 @@ func TestMoveDomainMissingTargetDiagnostic(t *testing.T) {
 	for _, args := range [][]string{
 		{"mv", "skills.sh", "-p", "GitHub"},
 		{"move-domain", "skills.sh", "--profile", "Personal"},
-		{"md", "skills.sh", "-D", "*.skills.sh"},
 		{"mv", "skills.sh"},
 		{"mv", "skills.sh", "-p"},
 	} {

@@ -38,11 +38,15 @@ func (p *presentation) start() {
 	fmt.Fprintf(p.out, "┌  %s\n│\n", p.title())
 	c := p.command
 	context := false
-	for _, pair := range [][2]string{{"Profile", c.Profile}, {"Domain", displayDomains(c.Domains)}, {"Keyword", strings.Join(c.Keywords, ", ")}} {
+	for _, pair := range [][2]string{{"Profile", c.Profile}, {"Domain", displayDomains(c.Domains)}, {"Keyword", strings.Join(c.Keywords, ", ")}, {"Exclude", displayDomains(c.ExcludeDomains)}} {
 		if pair[1] != "" {
 			fmt.Fprintf(p.out, "│  %-7s %s\n", pair[0], safeText(pair[1]))
 			context = true
 		}
+	}
+	if c.Unpinned {
+		fmt.Fprintln(p.out, "│  State   Unpinned")
+		context = true
 	}
 	if len(c.Domains) > 0 {
 		for _, d := range c.Domains {
