@@ -1,6 +1,40 @@
 package main
 
 var commandHelp = map[string]string{
+	"history": `USAGE
+  dia history <text> [--json]
+
+ALIASES
+  hs
+
+Search local history titles and URLs for one case-insensitive literal phrase. Return the latest 100 matching URLs, ordered by last visit and then ID descending. Times are UTC.
+
+FLAG
+  --json                 Print a JSON array without terminal decoration
+
+Read the last-used disk profile from Dia Local State, falling back to Default when unset. UI Profile and tab filters do not apply. Dia need not be running. Requires macOS /usr/bin/sqlite3.
+
+EXAMPLES
+  dia hs github
+  dia history --json "中文 phrase"
+  dia hs -- -literal`,
+	"bookmarks": `USAGE
+  dia bookmarks <text> [--json]
+
+ALIASES
+  bm
+
+Search local bookmark titles and URLs for one case-insensitive literal phrase. Include nested folders and keep separate bookmarks with the same URL.
+
+FLAG
+  --json                 Print a JSON array without terminal decoration
+
+Read the last-used disk profile from Dia Local State, falling back to Default when unset. UI Profile and tab filters do not apply. Dia need not be running.
+
+EXAMPLES
+  dia bm github
+  dia bookmarks "中文 phrase" --json
+  dia bm -- -literal`,
 	"dedupe": `USAGE
   dia dedupe [flags]
 

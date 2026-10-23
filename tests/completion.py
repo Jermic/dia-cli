@@ -44,8 +44,14 @@ with tempfile.TemporaryDirectory() as tmp:
         return result.stdout.decode().rstrip('\0').split('\0') if result.stdout else []
 
     commands = complete('')
-    assert {'dedupe', 'dd', 'domains', 'ds', 'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
+    assert {'history', 'hs', 'bookmarks', 'bm', 'dedupe', 'dd', 'domains', 'ds', 'tabs', 't', 'move-domain', 'mv', 'md', 'help', 'h', 'version', 'v', '-v', '--version'} <= set(commands)
     assert not trace.exists(), 'command completion queried Dia'
+    for local_command in ('history', 'hs', 'bookmarks', 'bm'):
+        assert complete(local_command, '') == ['-h', '--help', '--json']
+        assert complete(local_command, 'github', '') == ['-h', '--help', '--json']
+        assert complete(local_command, '--json', '') == ['-h', '--help']
+        assert complete(local_command, '--', '') == []
+    assert not trace.exists(), 'local search completion queried Dia'
     for version in ('version', 'v', '-v', '--version'):
         assert complete(version, '') == ['-h', '--help']
     assert not trace.exists(), 'version completion queried Dia'

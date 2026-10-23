@@ -9,6 +9,7 @@ import (
 
 func TestCommandHelpRoutes(t *testing.T) {
 	want := map[string]string{
+		"history": "dia history <text> [--json]", "bookmarks": "dia bookmarks <text> [--json]",
 		"dedupe":  "dia dedupe [flags]",
 		"domains": "dia domains [flags]", "help": "dia help [command]", "version": "dia version", "tabs": "dia tabs [flags]",
 		"find": "dia find <text> [flags]", "current": "dia current [-w <id>]",

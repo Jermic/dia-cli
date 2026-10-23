@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -28,11 +29,11 @@ func (p *presentation) title() string {
 		}
 		return "Move tabs"
 	}
-	return map[string]string{"domains": "Domains", "tabs": "Tabs", "find": "Search tabs", "current": "Current tab", "profiles": "Profiles", "windows": "Windows"}[p.command.Name]
+	return map[string]string{"history": "Search history", "bookmarks": "Search bookmarks", "domains": "Domains", "tabs": "Tabs", "find": "Search tabs", "current": "Current tab", "profiles": "Profiles", "windows": "Windows"}[p.command.Name]
 }
 
 func (p *presentation) start() {
-	if !p.mode.stdoutTTY || p.title() == "" {
+	if p.command.JSON || !p.mode.stdoutTTY || p.title() == "" {
 		return
 	}
 	fmt.Fprintf(p.out, "┌  %s\n│\n", p.title())
@@ -56,7 +57,7 @@ func (p *presentation) start() {
 			}
 		}
 	}
-	if c.Name == "find" {
+	if c.Name == "find" || isLocalSearch(c.Name) {
 		fmt.Fprintf(p.out, "│  Search  %s\n", safeText(c.Args[0]))
 		context = true
 	}
@@ -130,7 +131,7 @@ func (p *presentation) fail(reason string) {
 		fmt.Fprint(p.errs, "✕  ")
 	}
 	fmt.Fprintln(p.errs, reason)
-	if p.mode.stdoutTTY && p.title() != "" {
+	if !p.command.JSON && p.mode.stdoutTTY && p.title() != "" {
 		p.footer("Failed")
 	}
 }
@@ -144,6 +145,16 @@ func quantity(n int, noun string) string {
 
 func (p *presentation) finish(result Result) {
 	p.clear()
+	if p.command.JSON {
+		var value any = result.History
+		if p.command.Name == "bookmarks" {
+			value = result.Bookmarks
+		}
+		if err := json.NewEncoder(p.out).Encode(value); err != nil {
+			p.fail(err.Error())
+		}
+		return
+	}
 	if result.Dedupe != nil {
 		p.finishDedupe(result)
 		return
@@ -182,6 +193,12 @@ func (p *presentation) finish(result Result) {
 	}
 	n := max(0, len(strings.Split(strings.TrimSpace(result.Output), "\n"))-1)
 	noun := "tab"
+	if p.command.Name == "history" {
+		noun = "history match"
+	}
+	if p.command.Name == "bookmarks" {
+		noun = "bookmark"
+	}
 	if p.command.Name == "domains" {
 		noun = "domain"
 	}
@@ -198,6 +215,8 @@ func (p *presentation) finish(result Result) {
 	switch p.command.Name {
 	case "tabs", "find", "current":
 		p.body(renderTabs(result.Output, p.command.Detail || p.command.Name != "tabs"))
+	case "history", "bookmarks":
+		p.body(renderTable(result.Output, nil))
 	case "domains":
 		p.body(renderTable(result.Output, nil, 1))
 	case "profiles":

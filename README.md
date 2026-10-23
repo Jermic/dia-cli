@@ -4,7 +4,7 @@ A standalone Go command for listing and controlling Dia tabs through macOS Apple
 
 ## Install
 
-Requires macOS and a running Dia with scripting support. Homebrew selects the matching Apple Silicon or Intel archive automatically.
+Requires macOS. Tab commands require a running Dia with scripting support. Local history and bookmark searches work without a running browser. Homebrew selects the matching Apple Silicon or Intel archive automatically.
 
 ```zsh
 brew install jermic/tap/dia-cli
@@ -54,6 +54,8 @@ Every command has a short form. Both forms accept the same arguments and flags.
 | --- | --- | --- |
 | `tabs` | `t` | List tabs across windows and profiles. |
 | `find` | `f` | Search tab titles and URLs. |
+| `history` | `hs` | Search local history, latest 100 matching URLs. |
+| `bookmarks` | `bm` | Search local bookmarks, including nested folders. |
 | `current` | `c` | Show the active tab. |
 | `count` | `n` | Count distinct window and tab pairs. |
 | `dedupe` | `dd` | Preview duplicate tabs; add `-a` to close safe copies. |
@@ -102,6 +104,22 @@ Use `--keyword TEXT` or `-k TEXT` repeatedly to match text anywhere in a full UR
 Domains and keywords form one union. Profile, state, and `find` filters intersect with that union. These filters are available on `tabs`, `find`, `count`, `links`, `domains`, `dedupe`, `move-domain`, and `profiles -c`. Included/excluded domain and keyword filters on `profiles` require `-c`. `-E` requires at least one included or excluded domain and has no effect on keywords.
 
 Without a positive positional selector, put the destination first, such as `dia mv Read --unpinned --exclude-domain x.com --dry-run`. This form requires a tab-selection filter; `-p`, `-w`, and `-n` alone do not qualify. Legacy `dia mv github.com GitHub` and `dia mv -k youtube Watch` still work. Preview with `-n` before removing it to apply. An unpinned move rechecks pin state during preflight and immediately before each move; a newly pinned candidate stops the batch.
+
+### Search history and bookmarks
+
+```zsh
+dia hs github
+dia bm "reading list"
+dia history --json github
+dia bookmarks github --json
+dia hs -- -literal
+```
+
+Both commands require one nonempty search argument. Quote phrases with spaces. Search matches literal text in titles or URLs, ignoring case, with no wildcard or regular expression syntax. `--json` can appear before or after the query, before `--`. JSON output is an array with original source strings, including `[]` for no matches. Terminal output uses aligned tables; redirected output is TSV with control characters replaced by spaces. These searches do not replace saved tab rows.
+
+The source is `~/Library/Application Support/Dia/User Data/<disk-profile>/`. `Local State` selects `profile.last_used`; a missing state file or unset value selects `Default`. A disk profile is not a Dia sidebar Profile such as Day or GitHub. Tab filters such as `--profile`, `--domain`, and `--window` are not supported by these commands.
+
+History uses the macOS system `/usr/bin/sqlite3` in read-only mode and includes committed WAL data. It returns at most 100 matching URL records, ordered by last visit and then ID descending. `lastVisitedAt` is UTC, or empty when no visit time is recorded. Search scans the history records before applying the result cap, so large histories can take longer. History reads have a 10-second timeout. Bookmarks read the `Bookmarks` JSON file, traverse roots by key and children in stored order, and include the folder path. Duplicate bookmark URLs stay separate. Missing or malformed sources are errors. Neither command needs Apple Events permission or adds a runtime dependency beyond macOS system tools.
 
 ### Domain counts
 

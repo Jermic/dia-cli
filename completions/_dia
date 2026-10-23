@@ -16,18 +16,30 @@ _dia_profiles() {
 emulate -L zsh
 local cmd=${words[2]} arity=0 pending='' i literalAt=99999 explicitKeyword=0
 local -a subcommands flags
-subcommands=(dedupe dd domains ds tabs t find f current c count n links l open o help h version v -v --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
+subcommands=(history hs bookmarks bm dedupe dd domains ds tabs t find f current c count n links l open o help h version v -v --version focus fo close cl move m move-domain mv md navigate nav exec e windows w profiles ps profile p layout la)
 if (( CURRENT == 2 )); then
   compadd -- "${subcommands[@]}" --help -h
   return
 fi
 case $cmd in
+  hs) cmd=history ;; bm) cmd=bookmarks ;;
   dd) cmd=dedupe ;; ds) cmd=domains ;; t) cmd=tabs ;; f) cmd=find ;; c) cmd=current ;; n) cmd=count ;; l) cmd=links ;;
   o) cmd=open ;; h) cmd=help ;; fo) cmd=focus ;; cl) cmd=close ;;
   m) cmd=move ;; mv|md) cmd=move-domain ;; nav) cmd=navigate ;;
   e) cmd=exec ;; w) cmd=windows ;; ps) cmd=profiles ;; p) cmd=profile ;; la) cmd=layout ;;
   v|-v|--version) cmd=version ;;
 esac
+if [[ $cmd == history || $cmd == bookmarks ]]; then
+  for (( i = 3; i < CURRENT; i++ )); do
+    [[ ${words[i]} == -- || ${words[i]} == -h || ${words[i]} == --help ]] && return
+  done
+  if (( ! ${words[(Ie)--json]} )); then
+    compadd -- -h --help --json
+  else
+    compadd -- -h --help
+  fi
+  return
+fi
 case $cmd in
   help)
     (( CURRENT == 3 )) && compadd -- "${subcommands[@]}" --help -h

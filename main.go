@@ -34,6 +34,7 @@ type TabRef struct {
 
 type Command struct {
 	Name           string          `json:"name"`
+	JSON           bool            `json:"json,omitempty"`
 	Args           []string        `json:"args,omitempty"`
 	Window         string          `json:"window,omitempty"`
 	Profile        string          `json:"profile,omitempty"`
@@ -95,12 +96,14 @@ func (d *DedupeResult) validate(preview bool, reason string) error {
 }
 
 type Result struct {
-	Dedupe *DedupeResult `json:"dedupe,omitempty"`
-	URLs   []string      `json:"urls,omitempty"`
-	Output string        `json:"output"`
-	Tabs   []TabRef      `json:"tabs,omitempty"`
-	Move   *MoveResult   `json:"move,omitempty"`
-	Error  string        `json:"error,omitempty"`
+	History   []HistoryItem  `json:"history,omitempty"`
+	Bookmarks []BookmarkItem `json:"bookmarks,omitempty"`
+	Dedupe    *DedupeResult  `json:"dedupe,omitempty"`
+	URLs      []string       `json:"urls,omitempty"`
+	Output    string         `json:"output"`
+	Tabs      []TabRef       `json:"tabs,omitempty"`
+	Move      *MoveResult    `json:"move,omitempty"`
+	Error     string         `json:"error,omitempty"`
 }
 
 const help = `Control Dia tabs, windows, and profiles from your terminal.
@@ -112,6 +115,8 @@ CORE COMMANDS
   dedupe, dd              Preview duplicate tabs; -a closes safe duplicates
   tabs, t                 List tabs, sorted by title
   find, f <text>          Search titles and URLs
+  history, hs <text>       Search local history (latest 100 matches)
+  bookmarks, bm <text>     Search local bookmarks
   current, c              Show the active tab
   count, n                Count tabs
   domains, ds             Count tabs by root domain (-s for full hosts)
@@ -150,6 +155,7 @@ FILTERS AND FLAGS
   --subdomains, -s        Count full hosts instead of roots (domains only)
   -s, -st / -sl           Sort tabs by title / URL (-sl requires -d)
   --pinned, --loading     Require these tab states
+  --json                  JSON output (history and bookmarks only)
   --help, -h              Show help
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
@@ -168,13 +174,13 @@ EXAMPLES
   dia mv Read -up -exd x.com -n`
 
 var aliases = map[string]string{
-	"dd": "dedupe", "ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
+	"hs": "history", "bm": "bookmarks", "dd": "dedupe", "ds": "domains", "t": "tabs", "n": "count", "l": "links", "c": "current", "f": "find", "o": "open", "fo": "focus",
 	"ps": "profiles", "p": "profile", "h": "help", "w": "windows", "cl": "close", "m": "move", "mv": "move-domain", "md": "move-domain",
 	"nav": "navigate", "la": "layout", "e": "exec", "v": "version", "-v": "version",
 }
 
 var arities = map[string]int{
-	"dedupe": 0, "domains": 0, "help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
+	"history": 1, "bookmarks": 1, "dedupe": 0, "domains": 0, "help": 0, "version": 0, "tabs": 0, "links": 0, "count": 0, "current": 0, "find": 1, "focus": 1, "profiles": 0,
 	"profile": 1, "windows": 0, "layout": 1, "open": 1, "close": 1, "move": 2, "move-domain": 2,
 	"navigate": 2, "exec": 2,
 }
@@ -258,6 +264,9 @@ func parse(argv []string) (Command, error) {
 		return c, fmt.Errorf("unknown command: %s", name)
 	}
 	c.Name = name
+	if isLocalSearch(name) {
+		return parseLocalSearch(name, argv[1:])
+	}
 	if name == "help" {
 		if len(argv) > 2 {
 			return c, errors.New("usage: dia help [command] accepts at most one command")
@@ -522,6 +531,9 @@ func isRow(name string) bool {
 }
 
 func backend(c Command, onProgress func(Progress)) (Result, error) {
+	if isLocalSearch(c.Name) {
+		return localSearch(c)
+	}
 	source, err := scripts.ReadFile("scripts/dia.js")
 	if err != nil {
 		return Result{}, err
