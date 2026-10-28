@@ -145,6 +145,7 @@ FILTERS AND FLAGS
                          Use *.example.com for subdomains only
   --exclude-domain, -exd <domain>  Exclude root + subdomains; repeatable
   --unpinned, -up         Exclude pinned tabs; conflicts with --pinned
+  --include-pinned, -a   Include pinned tabs in batch moves (excluded by default)
   --keyword, -k <text>   Match URL text, case-insensitive; repeatable
   --exact-domain, -E      Match plain domains exactly (requires a domain)
   --window, -w <id>       Select one window
@@ -160,6 +161,8 @@ FILTERS AND FLAGS
 
 Rows come from the last visible tabs/find list in the same terminal and shell.
 Domains and URL keywords form a union; exclusions veto matches; other filters intersect.
+Batch moves exclude pinned tabs by default; -a includes them, --pinned selects only them.
+Queries include pinned tabs by default. State filters on profiles require --counts.
 Target-only moves require a tab filter, not just -p, -w, or -n.
 Use -- before literal positional arguments such as a profile named --help.
 Move-domain never creates profiles or moves between windows.
@@ -289,7 +292,7 @@ func parse(argv []string) (Command, error) {
 		}
 		return c, nil
 	}
-	apply, dryRun := false, false
+	apply, dryRun, includePinned := false, false, false
 	explicitKeyword := name == "move-domain" && len(argv) > 1 && (argv[1] == "-k" || argv[1] == "--keyword")
 	if explicitKeyword && len(argv) < 3 {
 		return c, errors.New("--keyword requires a value")
@@ -329,7 +332,7 @@ func parse(argv []string) (Command, error) {
 	}
 	if name == "move-domain" && len(argv) > 2 && literalAt > 2 {
 		switch argv[2] {
-		case "-p", "--profile", "-w", "--window", "-D", "--domain", "-k", "--keyword", "--pinned", "--unpinned", "-up", "--exclude-domain", "-exd", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
+		case "-p", "--profile", "-w", "--window", "-D", "--domain", "-k", "--keyword", "--pinned", "--unpinned", "-up", "--include-pinned", "-a", "--exclude-domain", "-exd", "--loading", "-n", "--dry-run", "-E", "--exact-domain":
 			if explicitKeyword {
 				return c, errors.New("missing target profile: use dia mv skills.sh GitHub; -p selects the source profile")
 			}
@@ -398,17 +401,17 @@ func parse(argv []string) (Command, error) {
 			}
 			exactDomain = true
 		case "--pinned":
-			if !isFiltered(name) {
+			if !isFiltered(name) && name != "profiles" {
 				return c, errors.New("--pinned is not valid here")
 			}
 			c.Pinned = true
 		case "--unpinned", "-up":
-			if !isFiltered(name) {
+			if !isFiltered(name) && name != "profiles" {
 				return c, errors.New("--unpinned is not valid here")
 			}
 			c.Unpinned = true
 		case "--loading":
-			if !isFiltered(name) {
+			if !isFiltered(name) && name != "profiles" {
 				return c, errors.New("--loading is not valid here")
 			}
 			c.Loading = true
@@ -441,7 +444,20 @@ func parse(argv []string) (Command, error) {
 			}
 			c.DryRun = true
 			dryRun = true
-		case "--apply", "-a":
+		case "--include-pinned":
+			if name != "move-domain" {
+				return c, errors.New("--include-pinned is valid only for move-domain")
+			}
+			includePinned = true
+		case "-a":
+			if name == "move-domain" {
+				includePinned = true
+			} else if name == "dedupe" {
+				apply = true
+			} else {
+				return c, errors.New("-a is valid only for move-domain or dedupe")
+			}
+		case "--apply":
 			if name != "dedupe" {
 				return c, errors.New("--apply is valid only for dedupe")
 			}
@@ -458,6 +474,9 @@ func parse(argv []string) (Command, error) {
 	if c.Pinned && c.Unpinned {
 		return c, errors.New("--pinned and --unpinned cannot be combined")
 	}
+	if includePinned && (c.Pinned || c.Unpinned) {
+		return c, errors.New("--include-pinned cannot be combined with --pinned or --unpinned")
+	}
 	if name == "dedupe" {
 		if apply && dryRun {
 			return c, errors.New("--apply and --dry-run cannot be combined")
@@ -469,6 +488,9 @@ func parse(argv []string) (Command, error) {
 	}
 	if name == "profiles" && (len(c.Domains) > 0 || len(c.ExcludeDomains) > 0 || len(c.Keywords) > 0) && !c.Counts {
 		return c, errors.New("profiles --domain/--exclude-domain/--keyword requires --counts")
+	}
+	if name == "profiles" && (c.Pinned || c.Unpinned || c.Loading) && !c.Counts {
+		return c, errors.New("profiles --pinned/--unpinned/--loading requires --counts")
 	}
 	if name == "layout" && c.Args[0] != "sidebar" && c.Args[0] != "tabStrip" {
 		return c, errors.New("layout must be sidebar or tabStrip")
@@ -518,6 +540,9 @@ func parse(argv []string) (Command, error) {
 				patterns[i].Exact = !patterns[i].Subdomains
 			}
 		}
+	}
+	if name == "move-domain" && !c.Pinned && !includePinned {
+		c.Unpinned = true
 	}
 	return c, nil
 }

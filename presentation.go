@@ -48,6 +48,12 @@ func (p *presentation) start() {
 	if c.Unpinned {
 		fmt.Fprintln(p.out, "│  State   Unpinned")
 		context = true
+	} else if c.Pinned {
+		fmt.Fprintln(p.out, "│  State   Pinned")
+		context = true
+	} else if c.Name == "move-domain" {
+		fmt.Fprintln(p.out, "│  State   All tabs")
+		context = true
 	}
 	if len(c.Domains) > 0 {
 		for _, d := range c.Domains {

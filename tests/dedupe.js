@@ -30,10 +30,11 @@ function run(argv) {
             p.tabs[key] = function () { recordRead(key, p.items); return p.items.map(function (t) { return t[key](); }); };
         });
         p.tabs.whose = function (query) {
+            if (query._or && query._or.length < 2) throw Error('Whose clause "_or" array requires at least two elements.');
             var collection = {};
             ['id', 'url', 'ispinned', 'loading'].forEach(function (key) {
                 collection[key] = function () {
-                    var items = p.items.filter(function (t) { return query._or.some(function (condition) { return condition.id === t._id; }); });
+                    var items = p.items.filter(function (t) { return (query._or || [query]).some(function (condition) { return condition.id === t._id; }); });
                     recordRead(key, items);
                     return items.map(function (t) { return t[key](); });
                 };
@@ -67,6 +68,13 @@ function run(argv) {
     }
     var emptySnapshot = new Function(source + '\nreturn readTabs;')()({tabs: {whose: function () { throw Error('Empty ID query'); }}}, ['url', 'ispinned'], []);
     assert(emptySnapshot.id.length === 0 && emptySnapshot.url.length === 0 && emptySnapshot.ispinned.length === 0, 'empty target IDs return empty arrays without remote calls');
+    var readSnapshot = new Function(source + '\nreturn readTabs;')();
+    reset([]);
+    var selectedProfile = profile('Selected', 1, [tab('a', 'https://a.test'), tab('b', 'https://b.test', {pinned: true}), tab('c', 'https://c.test')]);
+    var singleSnapshot = readSnapshot(selectedProfile, ['url', 'ispinned'], ['b']);
+    assert(singleSnapshot.id.join(',') === 'b' && singleSnapshot.url.join(',') === 'https://b.test' && singleSnapshot.ispinned[0], 'single target ID reads matching properties only');
+    var multiSnapshot = readSnapshot(selectedProfile, ['url'], ['c', 'a']);
+    assert(multiSnapshot.id.join(',') === 'a,c' && multiSnapshot.url.join(',') === 'https://a.test,https://c.test', 'multiple target IDs read selected tabs in browser order');
     var url = 'https://example.com/path?a=1#part';
     function basic() {
         var a = tab('a', url), b = tab('b', url), c = tab('c', url);

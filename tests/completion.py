@@ -66,7 +66,13 @@ with tempfile.TemporaryDirectory() as tmp:
     trace.unlink()
     assert complete('mv', '--', '-up', '') == profiles, 'literal selector was mistaken for a target-only flag'
     trace.unlink()
-    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-up', '--unpinned', '-exd', '--exclude-domain', '-n', '--dry-run']
+    assert complete('mv', 'example.com', 'Work', '') == ['-h', '--help', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading', '-up', '--unpinned', '-exd', '--exclude-domain', '-n', '--dry-run', '-a', '--include-pinned']
+    for move_command in ('mv', 'md', 'move-domain'):
+        assert {'-a', '--include-pinned'} <= set(complete(move_command, 'Read', '-exd', 'x.com', ''))
+        assert '--exclude-domain' in complete(move_command, 'Read', '--include-pinned', '')
+    for other_command in ('t', 'ds', 'dd', 'ps'):
+        assert '--include-pinned' not in complete(other_command, '')
+    assert {'--pinned', '--loading', '-up', '--unpinned'} <= set(complete('ps', '-c', ''))
     assert not trace.exists(), 'flag completion queried Dia'
     for domain_command in ('domains', 'ds'):
         assert {'-s', '--subdomains', '-w', '--window', '-p', '--profile', '-D', '--domain', '-k', '--keyword', '-E', '--exact-domain', '--pinned', '--loading'} <= set(complete(domain_command, ''))

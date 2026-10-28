@@ -66,7 +66,7 @@ function readTabs(profile, properties, ids) {
             properties.forEach(function (property) { empty[property] = []; });
             return empty;
         }
-        tabs = tabs.whose({_or: ids.map(function (id) { return {id: id}; })});
+        tabs = tabs.whose(ids.length === 1 ? {id: ids[0]} : {_or: ids.map(function (id) { return {id: id}; })});
     }
     var snapshot = {id: tabs.id()};
     properties.forEach(function (property) { snapshot[property] = tabs[property](); });
@@ -312,8 +312,12 @@ function run(argv) {
                     var profileRow = [wid, p.index(), name];
                     if (c.counts) {
                         var unique = Object.create(null);
-                        var profileTabs = readTabs(p, urlFiltered ? ['url'] : []);
+                        var countProperties = urlFiltered ? ['url'] : [];
+                        if (c.pinned || c.unpinned) countProperties.push('ispinned');
+                        if (c.loading) countProperties.push('loading');
+                        var profileTabs = readTabs(p, countProperties);
                         profileTabs.id.forEach(function (id, i) {
+                            if (c.pinned && !profileTabs.ispinned[i] || c.unpinned && profileTabs.ispinned[i] || c.loading && !profileTabs.loading[i]) return;
                             if (urlMatch(urlFiltered ? profileTabs.url[i] : '', c.domains, c.keywords, c.excludeDomains)) unique[String(id)] = true;
                         });
                         profileRow.push(Object.keys(unique).length);

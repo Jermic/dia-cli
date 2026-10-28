@@ -58,7 +58,7 @@ if [[ $cmd == move-domain && ( ${words[3]} == -k || ${words[3]} == --keyword ) ]
 fi
 if [[ $cmd == move-domain && ${words[3]} != -- ]] && (( ! explicitKeyword )); then
   case ${words[4]} in
-    -p|--profile|-w|--window|-D|--domain|-k|--keyword|--pinned|--unpinned|-up|--exclude-domain|-exd|--loading|-n|--dry-run|-E|--exact-domain) arity=1 ;;
+    -p|--profile|-w|--window|-D|--domain|-k|--keyword|--pinned|--unpinned|-up|--include-pinned|-a|--exclude-domain|-exd|--loading|-n|--dry-run|-E|--exact-domain) arity=1 ;;
   esac
 fi
 for (( i = 3; i < CURRENT; i++ )); do
@@ -87,7 +87,7 @@ if (( CURRENT <= 2 + arity )); then
 fi
 if [[ $cmd == move-domain ]] && (( arity == 2 && literalAt > 4 )); then
   case ${words[4]} in
-    -p|--profile|-w|--window|-D|--domain|-k|--keyword|--pinned|--unpinned|-up|--exclude-domain|-exd|--loading|-n|--dry-run|-E|--exact-domain) return ;;
+    -p|--profile|-w|--window|-D|--domain|-k|--keyword|--pinned|--unpinned|-up|--include-pinned|-a|--exclude-domain|-exd|--loading|-n|--dry-run|-E|--exact-domain) return ;;
   esac
 fi
 for (( i = 3 + arity; i < CURRENT; i++ )); do
@@ -113,9 +113,10 @@ case $cmd in
   dedupe|domains|find|count|links|move-domain)
     flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain --pinned --loading -up --unpinned -exd --exclude-domain)
     [[ $cmd == move-domain || $cmd == dedupe ]] && flags+=(-n --dry-run)
+    [[ $cmd == move-domain ]] && flags+=(-a --include-pinned)
     [[ $cmd == dedupe ]] && flags+=(-a --apply)
     [[ $cmd == domains ]] && flags+=(-s --subdomains) ;;
-  profiles) flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain -exd --exclude-domain -c --counts) ;;
+  profiles) flags+=(-w --window -p --profile -D --domain -k --keyword -E --exact-domain -exd --exclude-domain --pinned --loading -up --unpinned -c --counts) ;;
   current|windows|focus|profile|layout) flags+=(-w --window) ;;
 esac
 compadd -- "${flags[@]}"

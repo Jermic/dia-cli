@@ -269,6 +269,8 @@ ALIASES
 
 Move tabs selected by filters into the target profile. The target-only form requires --domain, --keyword, --exclude-domain, --pinned, --unpinned, or --loading; -p, -w, and -n alone are insufficient. A simple word such as youtube matches literal, case-insensitive text in the full URL. Use -D for a strict domain or -k for arbitrary URL text. The target must already exist in each involved window. Tabs stay in their windows.
 
+Pinned tabs are excluded by default. Add -a or --include-pinned to include them, or --pinned to select only pinned tabs. --include-pinned cannot combine with --pinned or --unpinned and never clears other filters. It does not count as a tab-selection filter in the target-only form.
+
 All windows pass preflight before any move. Terminal stderr shows live progress. Terminal stdout shows aligned previews and a concise result. Full counts appear on failure. Piped stdout keeps TSV plans and key=value counts. Dry-run shows scan and preview progress without moving tabs.
 
 FLAGS
@@ -278,7 +280,8 @@ FLAGS
   -k, --keyword <text>   Match URL text, case-insensitive; repeat for a union
   -exd, --exclude-domain <domain>  Exclude a host and subdomains; repeatable
   -E, --exact-domain     Match plain domains exactly; requires a domain
-  -up, --unpinned         Exclude pinned tabs; cannot combine with --pinned
+  -up, --unpinned         Exclude pinned tabs (default); conflicts with --pinned
+  -a, --include-pinned    Include pinned tabs; cannot combine with pin-state filters
   --pinned, --loading     Require these tab states
   -n, --dry-run           Preview decisions and counts; move no tabs
 
@@ -286,6 +289,7 @@ Domains and URL keywords form a union. Excluded domains veto matches. Keywords m
 
 EXAMPLE
   dia mv github.com Work -p Personal -n
+  dia mv github.com Work -a -n
   dia mv youtube Watch -n
   dia mv -k "youtube.com/watch" Watch -n
   dia mv skills.sh Watch -k youtube -n
@@ -329,7 +333,7 @@ EXAMPLE
 ALIASES
   ps
 
-List profiles in each window. With -c, count distinct tabs in each profile.
+List profiles in each window. With -c, count distinct tabs in each profile, including pinned tabs by default. State filters require -c. A tab shared across profiles counts in each profile.
 
 FLAGS
   -w, --window <id>       Select one window
@@ -339,11 +343,15 @@ FLAGS
   -k, --keyword <text>   Limit counts to URL text; requires -c; repeat for a union
   -exd, --exclude-domain <domain>  Exclude a host and subdomains; repeatable
   -E, --exact-domain     Match plain included/excluded domains exactly; requires -c
+  -up, --unpinned         Exclude pinned tabs from counts; requires -c
+  --pinned               Count only pinned tabs; conflicts with --unpinned; requires -c
+  --loading              Count only loading tabs; requires -c
 
 Plain included or excluded example.com matches the root and all subdomain levels. Use -E for only the plain host. Quote '*.example.com' for subdomains only; -E leaves wildcards unchanged.
 
 EXAMPLE
-  dia profiles -c -D example.com`,
+  dia profiles -c -D example.com
+  dia ps -c -up`,
 	"profile": `USAGE
   dia profile <name> [-w <id>]
 

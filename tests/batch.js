@@ -5,7 +5,7 @@ function run(argv) {
     if (!source) throw Error('Cannot read CLI source');
     var actions = [], events = [], transportFailure = false, scalarReads = 0, vectorRead = false;
     function tab(id, title, url) {
-        return {id: function () { if (!vectorRead) scalarReads++; return id; }, title: function () { return title; }, url: function () { if (!vectorRead) scalarReads++; return url; }, ispinned: function () { return !!this.pinned; },
+        return {id: function () { if (!vectorRead) scalarReads++; return id; }, title: function () { return title; }, url: function () { if (!vectorRead) scalarReads++; return url; }, ispinned: function () { return !!this.pinned; }, loading: function () { return !!this.isLoading; },
             move: function (options) {
                 if (this.fail) throw Error('Simulated move failure');
                 actions.push(id + '>' + options.to.name());
@@ -17,7 +17,7 @@ function run(argv) {
         p.reads = 0;
         function collection(ids) {
             function tabs() { return items; }
-            ['id', 'title', 'url', 'ispinned'].forEach(function (prop) { tabs[prop] = function () {
+            ['id', 'title', 'url', 'ispinned', 'loading'].forEach(function (prop) { tabs[prop] = function () {
                 p.reads++;
                 if (p.onRead) p.onRead(prop, ids);
                 vectorRead = true;
@@ -30,7 +30,10 @@ function run(argv) {
                 try { return items.filter(function (t) { return t.id() === id; })[0]; }
                 finally { vectorRead = false; }
             };
-            tabs.whose = function (query) { return collection(query._or.map(function (condition) { return String(condition.id); })); };
+            tabs.whose = function (query) {
+                if (query._or && query._or.length < 2) throw Error('Whose clause "_or" array requires at least two elements.');
+                return collection((query._or || [query]).map(function (condition) { return String(condition.id); }));
+            };
             return tabs;
         }
         var tabs = collection();
@@ -277,6 +280,22 @@ function run(argv) {
     assert(call({name: 'find', args: ['loose'], unpinned: true, excludeDomains: excluded}).tabs.length === 1, 'find intersects negative filters');
     assert(call({name: 'domains', unpinned: true, excludeDomains: excluded}).urls.length === 2, 'domains counts receive only eligible URLs');
     assert(call({name: 'profiles', counts: true, excludeDomains: excluded}).output.indexOf('Personal\t3') !== -1, 'profile counts honor domain exclusion');
+    loose.isLoading = true;
+    assert(call({name: 'profiles', counts: true, unpinned: true, excludeDomains: excluded}).output.indexOf('Personal\t2') !== -1, 'profile counts intersect unpinned and excluded domains');
+    assert(call({name: 'profiles', counts: true, pinned: true, domains: [{host: 'example.com'}]}).output.indexOf('Personal\t1') !== -1, 'profile counts intersect pinned and included domains');
+    assert(call({name: 'profiles', counts: true, loading: true, unpinned: true, keywords: ['loose']}).output.indexOf('Personal\t1') !== -1, 'profile counts intersect loading, pin state, and keyword');
+    assert(call({name: 'profiles', counts: true, pinned: true, excludeDomains: [{host: 'example.com'}]}).output.indexOf('Personal\t0') !== -1, 'profile with no state matches retains zero count');
+    var sharedFixed = profile('Shared', [fixed]);
+    windows = [window('negative', [negativeSource, sharedFixed, profile('Read', [])])];
+    var sharedCounts = call({name: 'profiles', counts: true, pinned: true}).output;
+    assert(sharedCounts.indexOf('Personal\t1') !== -1 && sharedCounts.indexOf('Shared\t1') !== -1 && sharedCounts.indexOf('Read\t0') !== -1, 'shared pinned tab counts independently in every profile');
+    windows = [window('negative', [negativeSource, profile('Read', [])])];
+    var sameDomain = [{host: 'example.com'}];
+    assert(call({name: 'move-domain', unpinned: true, domains: sameDomain, target: 'Read', dryRun: true}).move.matched === 1, 'normalized default move excludes pinned tabs in preview');
+    assert(call({name: 'move-domain', domains: sameDomain, target: 'Read', dryRun: true}).move.matched === 2, 'include-pinned selection includes both states in preview');
+    assert(call({name: 'move-domain', pinned: true, domains: sameDomain, target: 'Read', dryRun: true}).move.matched === 1, 'pinned-only selection excludes loose tabs in preview');
+    assert(actions.length === 0, 'all pin policy previews make no writes');
+    loose.isLoading = false;
     assert(call({name: 'count', keywords: ['x.com'], excludeDomains: excluded}).output === '1', 'excluded hosts veto URL keyword matches without excluding paths');
     assert(call({name: 'count', excludeDomains: [{host: 'x.com', subdomains: true}]}).output === '4', 'wildcard exclusion keeps root');
     assert(call({name: 'count', excludeDomains: [{host: 'x.com', exact: true}]}).output === '4', 'exact exclusion keeps subdomains');
@@ -286,6 +305,7 @@ function run(argv) {
     assert(negativePreview.move.matched === 2 && negativePreview.move.moved === 0 && actions.length === 0, 'target-only preview makes no moves');
     negativePlan.dryRun = false;
     assert(call(negativePlan).move.moved === 2 && actions.join(',') === 'loose>Read,local>Read', 'apply moves only unpinned tabs outside excluded hosts');
+    assert(call({name: 'move-domain', domains: sameDomain, target: 'Read'}).move.moved === 1 && actions.join(',') === 'loose>Read,local>Read,fixed>Read', 'include-pinned apply moves fixed tab and skips loose tab already in target');
     actions = [];
     var driftA = tab('drift-a', 'A', 'https://other.test/a'), driftB = tab('drift-b', 'B', 'https://other.test/b');
     var driftSource = profile('Personal', [driftA, driftB]);
